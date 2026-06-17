@@ -1,0 +1,764 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Live Positions</title>
+<style>
+  :root {
+    --bg: #0a0c10; --panel: #11151b; --line: #1d242d; --text: #e7ebf1;
+    --muted: #828c9b; --long: #2ebd85; --short: #f6465d; --accent: #6ee7c7;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+  .num { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .wrap { max-width: 2040px; margin: 0 auto; padding: 22px 26px 60px; }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  .top h1 { font-size: 20px; margin: 0; letter-spacing: .2px; }
+  .controls { display: flex; align-items: center; gap: 12px; }
+  #updated { color: var(--accent); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .btn { background: #161b22; color: var(--muted); border: 1px solid var(--line); border-radius: 8px;
+    padding: 6px 12px; font-size: 13px; cursor: pointer; font-family: inherit; }
+  .btn:hover { border-color: #2c3540; color: var(--text); }
+  .btn.on { color: var(--accent); border-color: #2c4f47; background: rgba(110,231,199,.08); }
+  .botbadge { font-size: 11px; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--line); color: var(--muted); }
+  .botbadge.run { color: var(--long); border-color: #1f5141; }
+  .botbadge.pause { color: #f0a35e; border-color: #5a4426; }
+  .botbadge.kill { color: var(--short); border-color: #5a2630; }
+  .botbadge.off { color: var(--muted); }
+  .botctrl { display: flex; gap: 8px; margin: 10px 0; }
+  .botctrl .btn { flex: 1; text-align: center; }
+  .btn.danger { color: #f6736a; border-color: #5a2630; }
+  .btn.danger:hover { background: rgba(246,70,93,.08); }
+  .botlog { margin-top: 8px; max-height: 180px; overflow-y: auto; border-top: 1px solid var(--line); padding-top: 8px; }
+  .tgbox { display: flex; flex-direction: column; gap: 7px; margin: 8px 0; }
+  .tgin { background: #0d1117; border: 1px solid var(--line); border-radius: 8px; color: var(--text);
+    padding: 8px 10px; font-size: 12px; font-family: ui-monospace, monospace; width: 100%; }
+  .tgin:focus { outline: none; border-color: #2c4f47; }
+  .setrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 9px 0; }
+  .setrow label { color: var(--muted); font-size: 13px; }
+  .ingrp { display: inline-flex; align-items: center; gap: 6px; }
+  .numin { width: 72px; background: #0d1117; border: 1px solid var(--line); border-radius: 8px;
+    color: var(--text); padding: 7px 9px; font-size: 14px; text-align: right; font-variant-numeric: tabular-nums; }
+  .numin:focus { outline: none; border-color: #2c4f47; }
+  .unit { color: var(--muted); font-size: 12px; }
+  .setnote { margin-top: 9px; font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .setnote.ok { color: var(--long); }
+  .setnote.err { color: var(--short); }
+  .logrow { font-size: 11.5px; padding: 3px 0; }
+  .logt { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
+
+  .layout { display: grid; grid-template-columns: 300px minmax(0, 1.7fr) minmax(0, 1fr); gap: 22px; align-items: start; }
+  @media (max-width: 1240px) { .layout { grid-template-columns: 280px minmax(0, 1fr); } .col-right { grid-column: 1 / -1; } }
+  @media (max-width: 880px) { .layout { grid-template-columns: 1fr; } .col-right { grid-column: auto; } }
+
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 18px; overflow: hidden; }
+  .side .panel { margin-bottom: 18px; }
+  .phead { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+           padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .wlabel { font-weight: 650; margin-right: 10px; }
+  .waddr { color: var(--accent); text-decoration: none; font-family: ui-monospace, monospace; font-size: 13px; }
+  .waddr:hover { text-decoration: underline; }
+  .meta { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+
+  .pbody { padding: 14px 16px; }
+  .hero { display: flex; flex-direction: column; gap: 3px; padding-bottom: 12px; margin-bottom: 6px; border-bottom: 1px solid var(--line); }
+  .herolabel { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+  .heroval { font-size: 26px; font-weight: 600; }
+  .statrow { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; font-size: 14px; color: var(--muted); }
+  .statrow .num { color: var(--text); }
+  .mlist { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .mrow { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; font-size: 13px; }
+  .mcoin { font-weight: 600; }
+  .mside { font-size: 11px; padding: 1px 6px; border-radius: 4px; margin-left: 4px; }
+  .warnbox { background: rgba(240,163,94,.10); border: 1px solid #5a4426; color: #f0a35e;
+    border-radius: 8px; padding: 8px 10px; font-size: 12px; margin-bottom: 12px; }
+  .mrow2 { position: relative; padding: 10px 11px; margin-bottom: 10px;
+    border: 1px solid #586733; background: rgba(122,140,68,0.06); }
+  .mrow2:last-child { margin-bottom: 0; }
+  .mrow2 .mcoin { letter-spacing: .5px; }
+  .cnr { position: absolute; width: 11px; height: 11px; pointer-events: none; }
+  .cnr.tl { top: -1px; left: -1px; border-top: 2px solid #9fb558; border-left: 2px solid #9fb558; }
+  .cnr.tr { top: -1px; right: -1px; border-top: 2px solid #9fb558; border-right: 2px solid #9fb558; }
+  .cnr.bl { bottom: -1px; left: -1px; border-bottom: 2px solid #9fb558; border-left: 2px solid #9fb558; }
+  .cnr.br { bottom: -1px; right: -1px; border-bottom: 2px solid #9fb558; border-right: 2px solid #9fb558; }
+  .mtop { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+  .mtop .mcoin { font-weight: 650; }
+  .mstats { display: flex; flex-wrap: wrap; gap: 3px 12px; margin-top: 4px; font-size: 11.5px; color: var(--muted); }
+  .mstats b { color: var(--text); font-weight: 600; }
+  .mpnl.pos { color: var(--long); }
+  .mpnl.neg { color: var(--short); }
+  .small { padding: 18px 16px; font-size: 13px; }
+  .muted2 { color: var(--muted); }
+
+  .tablewrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 700px; }
+  th.lft, td.lft { text-align: left; }
+  td.odate { color: var(--muted); }
+  .odate { color: var(--muted); font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 11px 14px; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--line); }
+  tbody tr + tr td { border-top: 1px solid var(--line); }
+  .asset { display: flex; align-items: center; gap: 8px; }
+  .coin { font-weight: 650; }
+  .chip { font-size: 10.5px; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line); color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+  .chip.stock { color: #d8b46a; border-color: #4a3d20; }
+  .chip.crypto { color: #7fb0e6; border-color: #243a52; }
+  .chip.botchip { color: #9fb558; border-color: #586733; }
+  .side { font-weight: 650; font-size: 13px; padding: 2px 8px; border-radius: 5px; }
+  .side.long, .mside.long { color: var(--long); background: rgba(46,189,133,.12); }
+  .side.short, .mside.short { color: var(--short); background: rgba(246,70,93,.12); }
+  .liq { color: #c98b8b; }
+  .c-pnl.pos .v, .pos { color: var(--long); }
+  .c-pnl.neg .v, .neg { color: var(--short); }
+  .roe { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .state { padding: 28px 16px; text-align: center; color: var(--muted); }
+  .foot { color: var(--muted); font-size: 12px; text-align: center; margin-top: 26px; }
+  .ranges { display: flex; gap: 6px; margin-bottom: 10px; }
+  .rbtn { flex: 1; background: #161b22; color: var(--muted); border: 1px solid var(--line); border-radius: 7px;
+    padding: 4px 0; font-size: 12px; cursor: pointer; font-family: inherit; }
+  .rbtn:hover { color: var(--text); border-color: #2c3540; }
+  .rbtn.on { color: var(--accent); border-color: #2c4f47; background: rgba(110,231,199,.08); }
+  .chartwrap { margin-bottom: 8px; }
+  .chart { width: 100%; height: 92px; display: block; }
+  .chartempty { height: 92px; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; }
+  .chartwrap { position: relative; }
+  .cdot { position: absolute; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 0 3px rgba(110,231,199,.18); display: none; pointer-events: none; }
+  .ctip { position: absolute; display: none; pointer-events: none; background: #0d1117; border: 1px solid var(--line);
+    border-radius: 7px; padding: 5px 8px; font-size: 12px; white-space: nowrap; z-index: 5; }
+  .ctip b { display: block; font-variant-numeric: tabular-nums; }
+  .ctip span { color: var(--muted); font-size: 11px; }
+  @keyframes flash { from { background: rgba(110,231,199,.20); } to { background: transparent; } }
+  .flash { animation: flash .6s ease-out; border-radius: 4px; }
+  @media (prefers-reduced-motion: reduce) { .flash { animation: none; } }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <h1>Live Positions</h1>
+      <div class="controls">
+        <button id="soundBtn" class="btn" type="button">🔕 Sound off</button>
+        <span id="updated">Loading…</span>
+      </div>
+    </div>
+    <div class="layout">
+      <aside class="side col-left">
+        <section class="panel" id="myPortfolio"><header class="phead"><span class="wlabel">My Portfolio</span></header><div class="state small">Loading…</div></section>
+        <section class="panel" id="myPerf"><header class="phead"><span class="wlabel">My Performance</span></header><div class="state small">Loading…</div></section>
+      </aside>
+      <main class="col-mid">
+        <div id="app"><div class="state">Loading positions…</div></div>
+      </main>
+      <aside class="side col-right">
+        <section class="panel" id="botPortfolio"><header class="phead"><span class="wlabel">Copy-Bot</span><span class="botbadge off" id="botBadge">⚪</span></header><div class="state small">…</div></section>
+        <section class="panel" id="botSettings"><header class="phead"><span class="wlabel">Copy-Bot Einstellungen</span></header><div class="state small">…</div></section>
+        <section class="panel" id="botPerf"><header class="phead"><span class="wlabel">Copy-Bot Performance</span></header><div class="state small">…</div></section>
+        <section class="panel" id="botPosWrap" style="display:none"></section>
+      </aside>
+    </div>
+    <div class="foot">Live prices from Hyperliquid · updates while this page is open · not financial advice</div>
+  </div>
+<script>
+const WALLETS = [
+  { addr: "0x0c349d9b92fbd172bbb5a17a9db0a673a6a10ad3", label: "Wallet 1" },
+  { addr: "0x1aa780bb10425b86bcf05ecbb7953f9a93729ed9", label: "Wallet 2" },
+];
+
+// ====== YOUR OWN WALLET — paste your Hyperliquid address here ======
+let MY_WALLET = "0x2a62f939cd2E36293c9e1ef73FdCA33daC8bcf95";
+// ==================================================================
+
+const STRUCT_MS = 20000;
+const MARKS_MS = 2000;
+const API = "https://api.hyperliquid.xyz/info";
+const DASH_TOKEN = "__DASH_TOKEN__";
+
+const MY_SET = /^0x[0-9a-fA-F]{40}$/.test(MY_WALLET);
+const MY_ADDR = MY_WALLET.toLowerCase();
+
+let POS = [], PANEL = {}, marks = {}, prevKeys = null;
+let MYPOS = [], MYACC = { accountValue: 0, withdrawable: 0 }, myBase = { accountValue: 0, baseUpnl: 0 }, myPerf = null, myCells = {};
+let mySpot = 0, myFetchOk = true;
+let myRange = "month";
+let botRange = "month", botHist = [], botMeta = null;
+
+/* ---------- sound ---------- */
+let soundOn = false;
+try { soundOn = localStorage.getItem("hlSound") === "1"; } catch (e) {}
+let audioCtx = null;
+function ensureAudio() {
+  if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audioCtx = null; } }
+  if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+}
+function beep(freq, start, dur, peak) {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime + start;
+  const osc = audioCtx.createOscillator(), g = audioCtx.createGain();
+  osc.type = "sine"; osc.frequency.value = freq;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(peak, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.connect(g); g.connect(audioCtx.destination);
+  osc.start(t); osc.stop(t + dur + 0.03);
+}
+function soundOpen() { ensureAudio(); beep(660, 0, 0.13, 0.22); beep(990, 0.12, 0.18, 0.22); }
+function soundClose() { ensureAudio(); beep(494, 0, 0.16, 0.22); beep(330, 0.13, 0.2, 0.22); }
+function soundTest() { ensureAudio(); beep(880, 0, 0.12, 0.2); }
+function updateSoundBtn() {
+  const b = document.getElementById("soundBtn"); if (!b) return;
+  b.textContent = soundOn ? "🔔 Sound on" : "🔕 Sound off";
+  b.classList.toggle("on", soundOn);
+}
+function toggleSound() {
+  soundOn = !soundOn;
+  try { localStorage.setItem("hlSound", soundOn ? "1" : "0"); } catch (e) {}
+  updateSoundBtn();
+  if (soundOn) { ensureAudio(); soundTest(); }
+}
+
+/* ---------- data ---------- */
+async function post(body) {
+  const r = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.json();
+}
+let dexCache = null;
+async function getDexes() {
+  if (dexCache) return dexCache;
+  try {
+    const d = await post({ type: "perpDexs" });
+    dexCache = [""].concat((d || []).filter((x) => x && x.name).map((x) => x.name));
+  } catch (e) { dexCache = [""]; }
+  return dexCache;
+}
+function parsePos(p, dex) {
+  const szi = parseFloat(p.szi || 0);
+  if (!szi) return null;
+  const raw = p.coin || "", bare = raw.includes(":") ? raw.split(":")[1] : raw;
+  const lev = p.leverage || {}, value = parseFloat(p.positionValue || 0);
+  return {
+    coin: bare, dex, kind: dex ? "Stock" : "Crypto",
+    side: szi > 0 ? "LONG" : "SHORT", szi,
+    entry: parseFloat(p.entryPx || 0), liq: parseFloat(p.liquidationPx || 0),
+    lev: (lev.value != null ? lev.value : "?") + "x", levNum: parseFloat(lev.value || 0), mode: lev.type || "",
+    margin: parseFloat(p.marginUsed || 0),
+    baseMark: Math.abs(szi) ? value / Math.abs(szi) : 0,
+  };
+}
+async function getPositions(addr) {
+  const dexes = await getDexes();
+  const reqs = dexes.map((dex) => {
+    const body = { type: "clearinghouseState", user: addr }; if (dex) body.dex = dex;
+    return post(body).then((d) => ({ dex, d })).catch(() => null);
+  });
+  const results = await Promise.all(reqs);
+  const out = [];
+  for (const res of results) {
+    if (!res || !res.d) continue;
+    for (const ap of res.d.assetPositions || []) { const x = parsePos(ap.position || {}, res.dex); if (x) out.push(x); }
+  }
+  out.sort((a, b) => Math.abs(b.szi) * b.baseMark - Math.abs(a.szi) * a.baseMark);
+  return out;
+}
+async function getMyAccount(addr) {
+  const dexes = await getDexes();
+  const reqs = dexes.map((dex) => {
+    const body = { type: "clearinghouseState", user: addr }; if (dex) body.dex = dex;
+    return post(body).then((d) => ({ dex, d })).catch(() => null);
+  });
+  const results = await Promise.all(reqs);
+  let accountValue = 0, withdrawable = 0; const positions = [];
+  for (const res of results) {
+    if (!res || !res.d) continue;
+    const ms = res.d.marginSummary || {};
+    accountValue += parseFloat(ms.accountValue || 0);
+    withdrawable += parseFloat(res.d.withdrawable || 0);
+    for (const ap of res.d.assetPositions || []) { const x = parsePos(ap.position || {}, res.dex); if (x) positions.push(x); }
+  }
+  positions.sort((a, b) => Math.abs(b.szi) * b.baseMark - Math.abs(a.szi) * a.baseMark);
+  return { accountValue, withdrawable, positions };
+}
+async function getPortfolio(addr) {
+  try {
+    const d = await post({ type: "portfolio", user: addr });
+    const map = {};
+    for (const e of d || []) if (Array.isArray(e) && e.length >= 2) map[e[0]] = e[1];
+    const pnl = (w) => { const a = map[w] && map[w].pnlHistory; if (!a || !a.length) return null; return parseFloat(a[a.length - 1][1]) - parseFloat(a[0][1]); };
+    const vol = (w) => { const x = map[w]; return x && x.vlm != null ? parseFloat(x.vlm) : null; };
+    const hist = (w) => { const a = map[w] && map[w].accountValueHistory; return a ? a.map((x) => ({ t: +x[0], v: parseFloat(x[1]) })) : []; };
+    return { day: pnl("day"), week: pnl("week"), month: pnl("month"), all: pnl("allTime"), vol30: vol("month"),
+      hist: { day: hist("day"), week: hist("week"), month: hist("month"), allTime: hist("allTime") } };
+  } catch (e) { return null; }
+}
+async function getSpot(addr) {
+  const d = await post({ type: "spotClearinghouseState", user: addr });
+  let usdc = 0;
+  for (const b of (d.balances || [])) { if ((b.coin || "").toUpperCase() === "USDC") usdc += parseFloat(b.total || 0); }
+  return usdc;
+}
+async function getOpenDates(addr) {
+  try {
+    const fills = await post({ type: "userFills", user: addr });
+    const grp = {};
+    for (const f of fills || []) { const c = f.coin || ""; const bare = c.includes(":") ? c.split(":")[1] : c; (grp[bare] = grp[bare] || []).push(f); }
+    const map = {};
+    for (const coin in grp) {
+      const arr = grp[coin].sort((a, b) => a.time - b.time);
+      let openT = null;
+      for (const f of arr) {
+        const start = parseFloat(f.startPosition || 0), sz = parseFloat(f.sz || 0);
+        const after = start + (f.side === "B" ? sz : -sz);
+        if (Math.abs(start) < 1e-9 && Math.abs(after) > 1e-9) openT = f.time;
+        if (Math.abs(after) < 1e-9) openT = null;
+      }
+      if (openT) map[coin] = openT;
+    }
+    return map;
+  } catch (e) { return {}; }
+}
+const openCache = {}, openCacheT = {};
+async function getOpenDatesCached(addr) {
+  const now = Date.now();
+  if (openCache[addr] && now - (openCacheT[addr] || 0) < 60000) return openCache[addr];
+  const m = await getOpenDates(addr);
+  openCache[addr] = m; openCacheT[addr] = now;
+  return m;
+}
+
+async function fetchMarks() {
+  const dexes = Array.from(new Set(POS.concat(MYPOS).map((p) => p.dex)));
+  if (!dexes.includes("")) dexes.push("");
+  const reqs = dexes.map((d) => { const body = { type: "allMids" }; if (d) body.dex = d; return post(body).then((r) => (r && r.mids ? r.mids : r)).catch(() => null); });
+  const results = await Promise.all(reqs);
+  const m = {};
+  for (const r of results) if (r && typeof r === "object") Object.assign(m, r);
+  if (Object.keys(m).length) marks = m;
+}
+function markFor(p) {
+  const v = marks[p.coin] != null ? marks[p.coin] : marks[p.dex + ":" + p.coin];
+  const mk = parseFloat(v);
+  return isFinite(mk) && mk > 0 ? mk : p.baseMark;
+}
+
+/* ---------- format ---------- */
+function fmtPrice(x) { if (!x) return "—"; if (Math.abs(x) >= 1) return "$" + x.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); return "$" + Number(x.toPrecision(4)).toString(); }
+function fmtUsd(x) { return (x < 0 ? "-$" : "$") + Math.abs(x).toLocaleString("en-US", { maximumFractionDigits: 0 }); }
+function fmtSigned(x) { return (x < 0 ? "-$" : "+$") + Math.abs(x).toLocaleString("en-US", { maximumFractionDigits: 0 }); }
+function fmtSignedC(x) { return (x < 0 ? "-$" : "+$") + Math.abs(x).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function fmtUsdC(x) { return (x < 0 ? "-$" : "$") + Math.abs(x).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+let chartMeta = null;
+function buildMeta(pts) { let min = Infinity, max = -Infinity; for (const p of pts) { if (p.v < min) min = p.v; if (p.v > max) max = p.v; } if (max === min) { max += 1; min -= 1; } return { pts, min, max, W: 280, H: 92, pad: 6 }; }
+function attachHover(root, meta) {
+  const wrap = root && root.querySelector(".chartwrap");
+  const tip = root && root.querySelector(".ctip");
+  const dot = root && root.querySelector(".cdot");
+  if (!wrap || !tip || !dot || !meta) return;
+  wrap.onmousemove = (e) => {
+    const m = meta, n = m.pts.length, rect = wrap.getBoundingClientRect();
+    if (n < 2) return;
+    let frac = (e.clientX - rect.left) / rect.width; frac = Math.max(0, Math.min(1, frac));
+    const i = Math.round(frac * (n - 1)), p = m.pts[i];
+    const xvb = m.pad + (i / (n - 1)) * (m.W - 2 * m.pad), yvb = m.pad + (1 - (p.v - m.min) / (m.max - m.min)) * (m.H - 2 * m.pad);
+    const xpx = (xvb / m.W) * rect.width, ypx = (yvb / m.H) * rect.height;
+    dot.style.left = xpx + "px"; dot.style.top = ypx + "px"; dot.style.display = "block";
+    const d = new Date(p.t);
+    tip.innerHTML = `<b>${fmtUsdC(p.v)}</b><span>${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>`;
+    let tl = xpx + 10; if (tl > rect.width - 116) tl = xpx - 116; if (tl < 0) tl = 0;
+    tip.style.left = tl + "px"; tip.style.top = Math.max(0, ypx - 42) + "px"; tip.style.display = "block";
+  };
+  wrap.onmouseleave = () => { tip.style.display = "none"; dot.style.display = "none"; };
+}
+function fmtPct(x) { return (x >= 0 ? "+" : "") + (x * 100).toFixed(1) + "%"; }
+function fmtDate(ts) { if (!ts) return "—"; const d = new Date(ts), p = (n) => String(n).padStart(2, "0"); return p(d.getDate()) + "." + p(d.getMonth() + 1) + "." + d.getFullYear(); }
+function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function setCell(el, text) { if (!el || el.textContent === text) return; el.textContent = text; el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash"); }
+function setPnl(el, val) { if (!el) return; el.classList.toggle("pos", val >= 0); el.classList.toggle("neg", val < 0); setCell(el.querySelector(".v"), fmtSigned(val)); }
+
+/* ---------- render: tracked wallets ---------- */
+function renderStructure(data) {
+  POS = []; PANEL = {};
+  let html = "";
+  data.forEach((w, wi) => {
+    const addrShort = w.addr.slice(0, 6) + "…" + w.addr.slice(-4);
+    let body = "";
+    if (w.error) body = `<div class="state">Couldn't reach Hyperliquid — retrying…</div>`;
+    else if (!w.positions.length) body = `<div class="state">No open positions.</div>`;
+    else {
+      const rows = w.positions.map((p) => {
+        const i = POS.length; p.wi = wi; POS.push(p);
+        const sideCls = p.side === "LONG" ? "long" : "short", kindCls = p.kind === "Stock" ? "stock" : "crypto";
+        return `<tr>
+          <td class="num odate lft">${fmtDate(p.opened)}</td>
+          <td class="asset lft"><span class="coin">${esc(p.coin)}</span><span class="chip ${kindCls}">${p.kind}</span></td>
+          <td><span class="side ${sideCls}">${p.side}</span></td>
+          <td class="num c-val" data-i="${i}">—</td>
+          <td class="num">${fmtPrice(p.entry)}</td>
+          <td class="num liq">${fmtPrice(p.liq)}</td>
+          <td class="num">${esc(p.lev)}</td>
+          <td class="num">${fmtUsd(p.margin)}</td>
+          <td class="num c-pnl" data-i="${i}"><span class="v">—</span><span class="roe c-roe">—</span></td>
+        </tr>`;
+      }).join("");
+      body = `<div class="tablewrap"><table>
+        <thead><tr><th class="lft">Opened</th><th class="lft">Asset</th><th>Side</th><th>Size</th><th>Entry</th><th>Liq</th><th>Lev</th><th>Margin</th><th>uPnL</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>`;
+    }
+    html += `<section class="panel"><header class="phead"><div><span class="wlabel">${esc(w.label)}</span><a class="waddr" href="https://hypurrscan.io/address/${w.addr}" target="_blank" rel="noopener">${addrShort}</a></div><span class="meta" id="meta${wi}"></span></header>${body}</section>`;
+  });
+  document.getElementById("app").innerHTML = html;
+  POS.forEach((p, i) => { p.cVal = document.querySelector(`.c-val[data-i="${i}"]`); const td = document.querySelector(`.c-pnl[data-i="${i}"]`); p.cPnl = td; p.cRoe = td ? td.querySelector(".c-roe") : null; });
+  data.forEach((w, wi) => { PANEL[wi] = document.getElementById(`meta${wi}`); });
+  tick();
+}
+
+/* ---------- render: my portfolio + performance ---------- */
+function chartSvg(pts) {
+  const W = 280, H = 92, pad = 6;
+  if (!pts || pts.length < 2) return `<div class="chartempty">Not enough data yet.</div>`;
+  let min = Infinity, max = -Infinity;
+  for (const p of pts) { if (p.v < min) min = p.v; if (p.v > max) max = p.v; }
+  if (max === min) { max += 1; min -= 1; }
+  const n = pts.length;
+  const X = (i) => pad + (i / (n - 1)) * (W - 2 * pad);
+  const Y = (v) => pad + (1 - (v - min) / (max - min)) * (H - 2 * pad);
+  let dline = "";
+  pts.forEach((p, i) => { dline += (i ? "L" : "M") + X(i).toFixed(1) + " " + Y(p.v).toFixed(1) + " "; });
+  const up = pts[n - 1].v >= pts[0].v;
+  const col = up ? "var(--long)" : "var(--short)";
+  const gid = up ? "gup" : "gdn";
+  const bottom = (H - pad).toFixed(1);
+  const darea = `M${X(0).toFixed(1)} ${bottom} ` + pts.map((p, i) => `L${X(i).toFixed(1)} ${Y(p.v).toFixed(1)}`).join(" ") + ` L${X(n - 1).toFixed(1)} ${bottom} Z`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="chart">
+    <defs><linearGradient id="${gid}" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="${col}" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>
+    <path d="${darea}" fill="url(#${gid})"/>
+    <path d="${dline}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+  </svg>`;
+}
+
+function renderMine() {
+  const port = document.getElementById("myPortfolio"), perf = document.getElementById("myPerf");
+  if (!port || !perf) return;
+  if (!MY_SET) {
+    port.innerHTML = `<header class="phead"><span class="wlabel">My Portfolio</span></header><div class="state small">Add your wallet in the code (MY_WALLET) to see your portfolio.</div>`;
+    perf.innerHTML = `<header class="phead"><span class="wlabel">My Performance</span></header><div class="state small">—</div>`;
+    return;
+  }
+  let _wsum = 0, _lsum = 0;
+  for (const p of MYPOS) { const nt = Math.abs(p.szi) * p.baseMark; _wsum += nt; _lsum += nt * (p.levNum || 0); }
+  const avgLev = _wsum > 0 ? _lsum / _wsum : 0;
+  const posList = MYPOS.length
+    ? MYPOS.map((p, i) => `<div class="mrow2"><span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+        <div class="mtop"><span class="odate">${fmtDate(p.opened)}</span> <span class="mcoin">${esc(p.coin)}</span> <span class="mside ${p.side === "LONG" ? "long" : "short"}">${p.side}</span></div>
+        <div class="mstats">
+          <span>Size <b class="num c-msize" data-i="${i}">—</b></span>
+          <span>Lev <b class="num">${esc(p.lev)}${p.mode ? " " + p.mode.charAt(0).toUpperCase() + p.mode.slice(1) : ""}</b></span>
+          <span>Margin <b class="num">${fmtUsd(p.margin)}</b></span>
+          <span class="mpnl num c-mpnl2" data-i="${i}">—</span>
+        </div>
+      </div>`).join("")
+    : `<div class="state small">No open positions.</div>`;
+  port.innerHTML = `<header class="phead"><span class="wlabel">My Portfolio</span></header>
+    <div class="pbody">
+      ${myFetchOk ? "" : `<div class="warnbox">\u26a0\ufe0f Hyperliquid-API nicht erreichbar \u2014 vermutlich als lokale Datei geöffnet. Sag mir Bescheid für den lokalen-Server-Fix.</div>`}
+      <div class="hero"><span class="herolabel">Account value (Perp)</span><span class="heroval num c-acct">—</span></div>
+      <div class="statrow" title="USDC in deinem Hyperliquid-Spot-Konto \u2014 noch nicht als Perp-Margin eingesetzt"><span>Cash (Spot)</span><span class="num">${fmtUsdC(mySpot)}</span></div>
+      <div class="statrow"><span>Unrealized PnL</span><span class="num c-mpnl"><span class="v">—</span></span></div>
+      <div class="statrow" title="Funds not tied up in positions — free to withdraw or open new trades"><span>Free</span><span class="num">${fmtUsd(MYACC.withdrawable)}</span></div>
+      <div class="statrow"><span>Open positions</span><span class="num">${MYPOS.length}</span></div>
+      <div class="statrow" title="Average leverage across your open positions, weighted by size"><span>Avg leverage</span><span class="num">${MYPOS.length ? avgLev.toFixed(1) + "\u00d7" : "—"}</span></div>
+      <div class="mlist">${posList}</div>
+    </div>`;
+  const r = (label, val) => val == null
+    ? `<div class="statrow"><span>${label}</span><span class="num muted2">—</span></div>`
+    : `<div class="statrow"><span>${label}</span><span class="num ${val >= 0 ? "pos" : "neg"}">${fmtSignedC(val)}</span></div>`;
+  const ranges = [["day", "1D"], ["week", "1W"], ["month", "1M"], ["allTime", "All"]];
+  const rangeBtns = ranges.map(([k, l]) => `<button class="rbtn ${k === myRange ? "on" : ""}" data-r="${k}" type="button">${l}</button>`).join("");
+  const cpts = (myPerf && myPerf.hist) ? (myPerf.hist[myRange] || []) : [];
+  const chartHtml = chartSvg(cpts);
+  perf.innerHTML = `<header class="phead"><span class="wlabel">My Performance</span></header>
+    <div class="pbody">
+      <div class="ranges">${rangeBtns}</div>
+      <div class="chartwrap">${chartHtml}<div class="cdot"></div><div class="ctip"></div></div>
+      ${myPerf ? r("24h", myPerf.day) + r("7d", myPerf.week) + r("30d", myPerf.month) + r("All-time", myPerf.all) +
+        `<div class="statrow"><span>Volume (30d)</span><span class="num">${myPerf.vol30 != null ? fmtUsd(myPerf.vol30) : "—"}</span></div>`
+        : `<div class="state small">No data yet.</div>`}
+    </div>`;
+  perf.querySelectorAll(".rbtn").forEach((b) => b.addEventListener("click", () => { myRange = b.dataset.r; renderMine(); }));
+  chartMeta = cpts.length >= 2 ? buildMeta(cpts) : null;
+  attachHover(perf, chartMeta);
+  myCells.acct = document.querySelector(".c-acct");
+  myCells.pnl = document.querySelector(".c-mpnl");
+  MYPOS.forEach((p, i) => { p.cSize = document.querySelector(`.c-msize[data-i="${i}"]`); p.cPnl2 = document.querySelector(`.c-mpnl2[data-i="${i}"]`); });
+  tickMine();
+}
+
+/* ---------- live ticking ---------- */
+function tick() {
+  const totals = {};
+  for (const p of POS) {
+    const mark = markFor(p), value = Math.abs(p.szi) * mark, upnl = p.szi * (mark - p.entry), roe = p.margin > 0 ? upnl / p.margin : 0;
+    setCell(p.cVal, fmtUsd(value)); setPnl(p.cPnl, upnl);
+    if (p.cRoe) p.cRoe.textContent = fmtPct(roe);
+    const t = totals[p.wi] || (totals[p.wi] = { v: 0, p: 0, n: 0 }); t.v += value; t.p += upnl; t.n += 1;
+  }
+  for (const wi in PANEL) {
+    const el = PANEL[wi]; if (!el) continue; const t = totals[wi];
+    if (!t) { el.textContent = ""; continue; }
+    el.innerHTML = `${t.n} open · ${fmtUsd(t.v)} · <span class="${t.p >= 0 ? "pos" : "neg"}">${fmtSigned(t.p)}</span>`;
+  }
+  tickMine();
+}
+function tickMine() {
+  if (!MY_SET) return;
+  let upnl = 0;
+  for (const p of MYPOS) {
+    const mark = markFor(p), value = Math.abs(p.szi) * mark, u = p.szi * (mark - p.entry), roe = p.margin > 0 ? u / p.margin : 0;
+    upnl += u;
+    if (p.cSize) setCell(p.cSize, fmtUsd(value));
+    if (p.cPnl2) { p.cPnl2.classList.toggle("pos", u >= 0); p.cPnl2.classList.toggle("neg", u < 0); setCell(p.cPnl2, fmtSignedC(u) + " (" + fmtPct(roe) + ")"); }
+  }
+  const liveAcct = myBase.accountValue + (upnl - myBase.baseUpnl);
+  if (myCells.acct) setCell(myCells.acct, fmtUsdC(liveAcct));
+  if (myCells.pnl) { myCells.pnl.classList.toggle("pos", upnl >= 0); myCells.pnl.classList.toggle("neg", upnl < 0); setCell(myCells.pnl.querySelector(".v"), fmtSignedC(upnl)); }
+}
+
+function checkChanges() {
+  const keys = new Set(POS.map((p) => `${p.wi}|${p.dex}|${p.coin}|${p.side}`));
+  if (prevKeys) {
+    let opened = 0, closed = 0;
+    keys.forEach((k) => { if (!prevKeys.has(k)) opened++; });
+    prevKeys.forEach((k) => { if (!keys.has(k)) closed++; });
+    if (soundOn) { if (opened) soundOpen(); if (closed) setTimeout(soundClose, opened ? 450 : 0); }
+  }
+  prevKeys = keys;
+}
+
+async function refreshStructure() {
+  const data = await Promise.all(WALLETS.map(async (w) => {
+    try {
+      const [positions, opens] = await Promise.all([getPositions(w.addr), getOpenDatesCached(w.addr)]);
+      positions.forEach((p) => { p.opened = opens[p.coin] || null; });
+      return { ...w, positions };
+    } catch (e) { return { ...w, error: true, positions: [] }; }
+  }));
+  renderStructure(data);
+  if (!data.some((w) => w.error)) checkChanges();
+
+  if (MY_SET) {
+    try {
+      const spot = await getSpot(MY_ADDR);
+      const [acc, opens] = await Promise.all([getMyAccount(MY_ADDR), getOpenDatesCached(MY_ADDR)]);
+      acc.positions.forEach((p) => { p.opened = opens[p.coin] || null; });
+      MYPOS = acc.positions; MYACC = acc; mySpot = spot;
+      let bu = 0; for (const p of MYPOS) bu += p.szi * (p.baseMark - p.entry);
+      myBase = { accountValue: acc.accountValue, baseUpnl: bu };
+      myPerf = await getPortfolio(MY_ADDR);
+      myFetchOk = true;
+    } catch (e) { myFetchOk = false; }
+  }
+  renderMine();
+  stamp();
+}
+function stamp() { const el = document.getElementById("updated"); if (el) el.textContent = "Live · " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }); }
+async function loop() { await fetchMarks(); tick(); stamp(); }
+
+async function pollBot() {
+  try {
+    const r = await fetch("/status?token=" + encodeURIComponent(DASH_TOKEN), { cache: "no-store" });
+    if (!r.ok) throw 0;
+    renderBot(await r.json());
+  } catch (e) {
+    botSettingsReady = false;
+    const port = document.getElementById("botPortfolio");
+    if (port) port.innerHTML = `<header class="phead"><span class="wlabel">Copy-Bot</span><span class="botbadge off">\u26aa Offline</span></header><div class="state small">Bot offline \u2014 erscheint, sobald der Bot l\u00e4uft und diese Seite ausliefert.</div>`;
+    const setp = document.getElementById("botSettings");
+    if (setp) setp.innerHTML = `<header class="phead"><span class="wlabel">Copy-Bot Einstellungen</span></header><div class="state small">\u2014</div>`;
+    const perf = document.getElementById("botPerf");
+    if (perf) perf.innerHTML = `<header class="phead"><span class="wlabel">Copy-Bot Performance</span></header><div class="state small">\u2014</div>`;
+    const wrap = document.getElementById("botPosWrap");
+    if (wrap) wrap.style.display = "none";
+  }
+}
+function botSliceHist(range) {
+  const h = botHist || [];
+  if (!h.length) return [];
+  const now = Date.now();
+  const span = range === "day" ? 86400000 : range === "week" ? 604800000 : range === "month" ? 2592000000 : Infinity;
+  const cut = now - span;
+  return h.filter((p) => p[0] >= cut).map((p) => ({ t: p[0], v: p[1] }));
+}
+function botBadgeHtml(s) {
+  const cls = s.killed ? "kill" : s.paused ? "pause" : "run";
+  const lbl = s.killed ? "\ud83d\uded1 Kill-Switch" : s.paused ? "\u23f8 Pausiert" : "\ud83d\udfe2 L\u00e4uft";
+  return `<span class="botbadge ${cls}">${lbl}${s.net ? " \u00b7 " + esc(s.net) : ""}</span>`;
+}
+function renderBot(s) {
+  botHist = s.history || [];
+  renderBotPortfolio(s);
+  renderBotSettings(s);
+  renderBotPerf(s);
+  renderBotPositions(s);
+}
+function renderBotPortfolio(s) {
+  const port = document.getElementById("botPortfolio");
+  if (!port) return;
+  const pos = s.positions || [];
+  const equity = s.equity || 0;
+  const upnl = pos.reduce((a, p) => a + (p.upnl || 0), 0);
+  let wsum = 0, lsum = 0;
+  for (const p of pos) { const nt = Math.abs(p.sz) * (p.mark || 0); wsum += nt; lsum += nt * (p.lev || 0); }
+  const avgLev = wsum > 0 ? lsum / wsum : 0;
+  const list = pos.length ? pos.map((p) => `<div class="mrow2"><span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+      <div class="mtop"><span class="odate">${fmtDate(p.opened)}</span> <span class="mcoin">${esc(p.bare)}</span> <span class="mside ${p.side === "LONG" ? "long" : "short"}">${p.side}</span></div>
+      <div class="mstats">
+        <span>Size <b class="num">${fmtUsd(Math.abs(p.sz) * (p.mark || 0))}</b></span>
+        <span>Lev <b class="num">${p.lev}\u00d7${p.mode ? " " + p.mode.charAt(0).toUpperCase() + p.mode.slice(1) : ""}</b></span>
+        <span>Margin <b class="num">${fmtUsd(p.margin)}</b></span>
+        <span class="mpnl num ${p.upnl >= 0 ? "pos" : "neg"}">${fmtSignedC(p.upnl)} (${fmtPct(p.roe)})</span>
+      </div>
+    </div>`).join("") : `<div class="state small">Keine offenen Positionen.</div>`;
+  const log = (s.log || []).slice().reverse().map((e) => `<div class="logrow"><span class="logt">${esc(e.t)}</span>${esc(e.text)}</div>`).join("") || `<div class="state small">Noch keine Aktionen.</div>`;
+  port.innerHTML = `<header class="phead"><span class="wlabel">Copy-Bot</span>${botBadgeHtml(s)}</header>
+    <div class="pbody">
+      <div class="hero"><span class="herolabel">Kontowert (Papier)</span><span class="heroval num">${fmtUsdC(equity)}</span></div>
+      <div class="statrow"><span>Unrealized PnL</span><span class="num ${upnl >= 0 ? "pos" : "neg"}">${fmtSignedC(upnl)}</span></div>
+      <div class="statrow" title="Realisiertes Guthaben, nicht in Positionen gebunden"><span>Kasse (frei)</span><span class="num">${fmtUsdC(s.cash != null ? s.cash : equity)}</span></div>
+      <div class="statrow"><span>Tages-PnL</span><span class="num ${(s.day_pnl || 0) >= 0 ? "pos" : "neg"}">${fmtSignedC(s.day_pnl || 0)}</span></div>
+      <div class="statrow"><span>Offene Positionen</span><span class="num">${s.slots_used || 0} / ${s.max_positions || 5}</span></div>
+      <div class="statrow"><span>Avg leverage</span><span class="num">${pos.length ? avgLev.toFixed(1) + "\u00d7" : "—"}</span></div>
+      <div class="botctrl">
+        ${s.paused ? `<button class="btn" onclick="botCmd('resume')">\u25b6\ufe0f Fortsetzen</button>` : `<button class="btn" onclick="botCmd('pause')">\u23f8 Pause</button>`}
+        <button class="btn danger" onclick="botFlatten()">\ud83e\uddf9 Alle schlie\u00dfen</button>
+      </div>
+      ${s.tg_on
+        ? `<div class="statrow"><span>Telegram</span><span class="num pos">\ud83d\udd14 aktiv &nbsp;<a href="#" onclick="botCmd('cleartg');return false;" class="muted2" style="font-size:11px">deaktivieren</a></span></div>`
+        : `<div class="tgbox"><input id="tgInput" class="tgin" type="text" placeholder="Telegram-Bot-Token hier einf\u00fcgen" autocomplete="off" spellcheck="false" /><button class="btn" onclick="saveTg()">\ud83d\udd14 Telegram aktivieren</button></div>`}
+      <div class="mlist">${list}</div>
+      <div class="botlog">${log}</div>
+    </div>`;
+}
+function renderBotPerf(s) {
+  const perf = document.getElementById("botPerf");
+  if (!perf) return;
+  const ranges = [["day", "1D"], ["week", "1W"], ["month", "1M"], ["allTime", "All"]];
+  const rangeBtns = ranges.map(([k, l]) => `<button class="rbtn ${k === botRange ? "on" : ""}" data-r="${k}" type="button">${l}</button>`).join("");
+  const cpts = botSliceHist(botRange);
+  const chartHtml = chartSvg(cpts);
+  const r = (label, val) => val == null
+    ? `<div class="statrow"><span>${label}</span><span class="num muted2">—</span></div>`
+    : `<div class="statrow"><span>${label}</span><span class="num ${val >= 0 ? "pos" : "neg"}">${fmtSignedC(val)}</span></div>`;
+  perf.innerHTML = `<header class="phead"><span class="wlabel">Copy-Bot Performance</span></header>
+    <div class="pbody">
+      <div class="ranges">${rangeBtns}</div>
+      <div class="chartwrap">${chartHtml}<div class="cdot"></div><div class="ctip"></div></div>
+      ${r("24h", s.pnl_24h)}${r("7d", s.pnl_7d)}${r("30d", s.pnl_30d)}${r("All-time", s.pnl_all)}
+    </div>`;
+  perf.querySelectorAll(".rbtn").forEach((b) => b.addEventListener("click", () => { botRange = b.dataset.r; renderBotPerf(s); }));
+  botMeta = cpts.length >= 2 ? buildMeta(cpts) : null;
+  attachHover(perf, botMeta);
+}
+function renderBotPositions(s) {
+  const wrap = document.getElementById("botPosWrap");
+  if (!wrap) return;
+  const pos = s.positions || [];
+  wrap.style.display = "";
+  const totV = pos.reduce((a, p) => a + Math.abs(p.sz) * (p.mark || 0), 0);
+  const totP = pos.reduce((a, p) => a + (p.upnl || 0), 0);
+  let body;
+  if (!pos.length) {
+    body = `<div class="state">Keine offenen Positionen \u2014 wartet auf den n\u00e4chsten neuen Trade des Whales.</div>`;
+  } else {
+    const rows = pos.map((p) => {
+      const sideCls = p.side === "LONG" ? "long" : "short", kindCls = p.kind === "Stock" ? "stock" : "crypto";
+      return `<tr>
+        <td class="num odate lft">${fmtDate(p.opened)}</td>
+        <td class="asset lft"><span class="coin">${esc(p.bare)}</span><span class="chip ${kindCls}">${p.kind}</span></td>
+        <td><span class="side ${sideCls}">${p.side}</span></td>
+        <td class="num">${fmtUsd(Math.abs(p.sz) * (p.mark || 0))}</td>
+        <td class="num">${fmtPrice(p.entry)}</td>
+        <td class="num">${fmtPrice(p.mark)}</td>
+        <td class="num">${p.lev}\u00d7${p.mode ? " " + esc(p.mode.charAt(0).toUpperCase() + p.mode.slice(1)) : ""}</td>
+        <td class="num">${fmtUsd(p.margin)}</td>
+        <td class="num ${p.upnl >= 0 ? "pos" : "neg"}">${fmtSignedC(p.upnl)}<span class="roe">${fmtPct(p.roe)}</span></td>
+      </tr>`;
+    }).join("");
+    body = `<div class="tablewrap"><table>
+      <thead><tr><th class="lft">Opened</th><th class="lft">Asset</th><th>Side</th><th>Size</th><th>Entry</th><th>Mark</th><th>Lev</th><th>Margin</th><th>uPnL</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+  }
+  wrap.innerHTML = `<header class="phead"><div><span class="wlabel">Copy-Bot</span> <span class="chip botchip">PAPIER</span></div><span class="meta">${pos.length} open \u00b7 ${fmtUsd(totV)} \u00b7 <span class="${totP >= 0 ? "pos" : "neg"}">${fmtSigned(totP)}</span></span></header>${body}`;
+}
+async function botCmd(cmd) {
+  try { await fetch("/" + cmd + "?token=" + encodeURIComponent(DASH_TOKEN), { method: "POST" }); } catch (e) {}
+  pollBot();
+}
+function botFlatten() { if (confirm("Wirklich ALLE Positionen schlie\u00dfen?")) botCmd("flatten"); }
+let botSettingsReady = false;
+function renderBotSettings(s) {
+  const el = document.getElementById("botSettings");
+  if (!el) return;
+  // build once; don't rebuild on every poll so typing isn't interrupted
+  if (botSettingsReady && document.getElementById("tpCrypto")) return;
+  const c = s.tp_crypto_pct != null ? s.tp_crypto_pct : 20;
+  const st = s.tp_stock_pct != null ? s.tp_stock_pct : 20;
+  el.innerHTML = `<header class="phead"><span class="wlabel">Copy-Bot Einstellungen</span></header>
+    <div class="pbody">
+      <div class="setrow"><label>Take-Profit · Crypto</label><span class="ingrp"><input id="tpCrypto" class="numin" type="number" min="1" max="1000" step="1" value="${c}"><span class="unit">% ROE</span></span></div>
+      <div class="setrow"><label>Take-Profit · Stocks</label><span class="ingrp"><input id="tpStock" class="numin" type="number" min="1" max="1000" step="1" value="${st}"><span class="unit">% ROE</span></span></div>
+      <button class="btn" onclick="saveTp()">\u2713 \u00dcbernehmen</button>
+      <div id="tpMsg" class="setnote">Gilt f\u00fcr <b>neue</b> Trades. Offene Positionen behalten ihren TP.</div>
+    </div>`;
+  botSettingsReady = true;
+}
+async function saveTp() {
+  const c = parseFloat((document.getElementById("tpCrypto") || {}).value);
+  const st = parseFloat((document.getElementById("tpStock") || {}).value);
+  const msg = document.getElementById("tpMsg");
+  if (!(c > 0) || !(st > 0)) { if (msg) { msg.textContent = "Bitte g\u00fcltige Prozentwerte eingeben."; msg.className = "setnote err"; } return; }
+  try {
+    await fetch("/settp?token=" + encodeURIComponent(DASH_TOKEN), {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "tp_crypto=" + c + "&tp_stock=" + st
+    });
+    if (msg) { msg.innerHTML = "\u2713 Gespeichert: Crypto +" + c + "% \u00b7 Stocks +" + st + "% \u2014 gilt f\u00fcr neue Trades."; msg.className = "setnote ok"; }
+  } catch (e) {
+    if (msg) { msg.textContent = "Fehler beim Speichern."; msg.className = "setnote err"; }
+  }
+}
+async function saveTg() {
+  const el = document.getElementById("tgInput");
+  const tok = el ? el.value.trim() : "";
+  if (!tok || tok.indexOf(":") < 0) { alert("Bitte den kompletten Bot-Token einf\u00fcgen (Format 123456:ABC...)."); return; }
+  try {
+    await fetch("/settg?token=" + encodeURIComponent(DASH_TOKEN), {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "tg_token=" + encodeURIComponent(tok)
+    });
+  } catch (e) {}
+  if (el) el.value = "";
+  pollBot();
+}
+function init() {
+  const b = document.getElementById("soundBtn"); if (b) b.addEventListener("click", toggleSound);
+  updateSoundBtn();
+  renderMine();
+  refreshStructure();
+  setInterval(refreshStructure, STRUCT_MS);
+  setInterval(loop, MARKS_MS);
+  pollBot();
+  setInterval(pollBot, 4000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshStructure(); });
+}
+init();
+
+</script>
+</body>
+</html>
