@@ -201,6 +201,12 @@
   th:first-child, td:first-child { text-align: left; }
   th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--line); }
   tbody tr + tr td { border-top: 1px solid var(--line); }
+  th.drag-th { cursor: grab; }
+  th.drag-th.dragging { opacity: .4; }
+  th.drag-th.drop-target { box-shadow: inset 2px 0 0 #5b8def; }
+  table.narrow { min-width: 0; }
+  td.pos { color: var(--long); }
+  td.neg { color: var(--short); }
   .asset { display: flex; align-items: center; gap: 8px; }
   .coin { font-weight: 650; }
   .chip { font-size: 10.5px; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line); color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
@@ -500,22 +506,23 @@ async function getClosedTrades(addr) {
   } catch (e) { return []; }
 }
 let myClosed = [];
+const CLOSED_FROM = new Date(2026, 5, 13).getTime();   // only show my trades closed on/after 13 Jun 2026
 async function fetchMyClosed() {
   if (!MY_SET) return;
-  myClosed = await getClosedTrades(MY_WALLET);
+  myClosed = (await getClosedTrades(MY_WALLET)).filter((t) => t.time >= CLOSED_FROM);
   renderMyClosed();
 }
 function renderMyClosed() {
   const el = document.getElementById("myClosed"); if (!el) return;
+  COL_RERENDER[CLOSED_STORE] = renderMyClosed;
   if (!MY_SET) { el.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span></header><div class="state small">—</div>`; return; }
-  const rows = myClosed.length
-    ? myClosed.map((t) => closedRowHtml(t.coin, t.side, t.pnl, t.pct, t.time)).join("")
-    : `<div class="state small">No closed trades found.</div>`;
+  const table = buildColTable(CLOSED_STORE, myClosed, "No closed trades since 13.06.", true);
   const realized = myClosed.reduce((a, t) => a + t.pnl, 0);
   const wins = myClosed.filter((t) => t.pnl > 0).length;
   const wr = myClosed.length ? Math.round(100 * wins / myClosed.length) : 0;
   const meta = myClosed.length ? `${myClosed.length} · <span class="${realized >= 0 ? "pos" : "neg"}">${fmtSigned(realized)}</span> · ${wr}% W` : "";
-  el.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span><span class="meta">${meta}</span></header><div class="pbody">${rows}</div>`;
+  el.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span><span class="meta">${meta}</span></header><div class="pbody">${table}</div>`;
+  wireColDrag(el);
 }
 
 async function fetchMarks() {
@@ -567,9 +574,77 @@ function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 function setCell(el, text) { if (!el || el.textContent === text) return; el.textContent = text; el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash"); }
 function setPnl(el, val) { if (!el) return; el.classList.toggle("pos", val >= 0); el.classList.toggle("neg", val < 0); setCell(el.querySelector(".v"), fmtSigned(val)); }
 
+/* ---------- reorderable table columns (drag headers; order saved in localStorage) ---------- */
+const POS_STORE = "hlPosCols", CLOSED_STORE = "hlClosedCols";
+const POS_COLS = [
+  { key: "opened", label: "Opened", lft: true, cell: (p) => `<td class="num odate lft">${fmtDate(p.opened)}</td>` },
+  { key: "asset", label: "Asset", lft: true, cell: (p) => `<td class="asset lft"><span class="coin">${esc(p.coin)}</span><span class="chip ${p.kind === "Stock" ? "stock" : "crypto"}">${p.kind}</span></td>` },
+  { key: "side", label: "Side", cell: (p) => `<td><span class="side ${p.side === "LONG" ? "long" : "short"}">${p.side}</span></td>` },
+  { key: "size", label: "Size", cell: (p) => `<td class="num c-val" data-i="${p._i}">—</td>` },
+  { key: "entry", label: "Entry", cell: (p) => `<td class="num">${fmtPrice(p.entry)}</td>` },
+  { key: "liq", label: "Liq", cell: (p) => `<td class="num liq">${fmtPrice(p.liq)}</td>` },
+  { key: "lev", label: "Lev", cell: (p) => `<td class="num">${esc(p.lev)}</td>` },
+  { key: "margin", label: "Margin", cell: (p) => `<td class="num">${fmtUsd(p.margin)}</td>` },
+  { key: "upnl", label: "uPnL", cell: (p) => `<td class="num c-pnl" data-i="${p._i}"><span class="v">—</span><span class="roe c-roe">—</span></td>` },
+];
+const CLOSED_COLS = [
+  { key: "closed", label: "Closed", lft: true, cell: (t) => `<td class="num odate lft">${fmtDate(t.time)}</td>` },
+  { key: "asset", label: "Asset", lft: true, cell: (t) => `<td class="asset lft"><span class="coin">${esc(t.coin)}</span></td>` },
+  { key: "side", label: "Side", cell: (t) => `<td><span class="side ${t.side === "LONG" ? "long" : "short"}">${t.side}</span></td>` },
+  { key: "pnl", label: "PnL", cell: (t) => `<td class="num ${t.pnl >= 0 ? "pos" : "neg"}">${fmtSignedC(t.pnl)}</td>` },
+  { key: "roe", label: "ROE%", cell: (t) => `<td class="num ${t.pct >= 0 ? "pos" : "neg"}">${(t.pct >= 0 ? "+" : "") + t.pct.toFixed(1)}%</td>` },
+];
+const COL_DEFS = { [POS_STORE]: POS_COLS, [CLOSED_STORE]: CLOSED_COLS };
+const COL_RERENDER = {};   // storeKey -> re-render fn (wired by each renderer)
+
+function loadColOrder(storeKey) {
+  const cols = COL_DEFS[storeKey], keys = cols.map((c) => c.key);
+  let order; try { order = JSON.parse(localStorage.getItem(storeKey) || "null"); } catch (e) { order = null; }
+  if (!Array.isArray(order)) order = [];
+  order = order.filter((k) => keys.includes(k));            // drop unknown/removed keys
+  for (const k of keys) if (!order.includes(k)) order.push(k);   // append any new columns
+  return order;
+}
+function orderedCols(storeKey) {
+  const byKey = {}; COL_DEFS[storeKey].forEach((c) => (byKey[c.key] = c));
+  return loadColOrder(storeKey).map((k) => byKey[k]);
+}
+function colHead(cols) {
+  return "<thead><tr>" + cols.map((c) =>
+    `<th class="drag-th${c.lft ? " lft" : ""}" draggable="true" data-key="${c.key}">${c.label}</th>`).join("") + "</tr></thead>";
+}
+function buildColTable(storeKey, rowsData, emptyMsg, narrow) {
+  if (!rowsData.length) return `<div class="state small">${emptyMsg}</div>`;
+  const cols = orderedCols(storeKey);
+  const body = rowsData.map((d) => `<tr>${cols.map((c) => c.cell(d)).join("")}</tr>`).join("");
+  return `<div class="tablewrap"><table data-cols="${storeKey}"${narrow ? ' class="narrow"' : ""}>${colHead(cols)}<tbody>${body}</tbody></table></div>`;
+}
+function wireColDrag(root) {
+  root.querySelectorAll("table[data-cols] thead th.drag-th").forEach((th) => {
+    th.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", th.dataset.key); e.dataTransfer.effectAllowed = "move"; th.classList.add("dragging"); });
+    th.addEventListener("dragend", () => th.classList.remove("dragging"));
+    th.addEventListener("dragover", (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; th.classList.add("drop-target"); });
+    th.addEventListener("dragleave", () => th.classList.remove("drop-target"));
+    th.addEventListener("drop", (e) => {
+      e.preventDefault(); th.classList.remove("drop-target");
+      const storeKey = th.closest("table[data-cols]").dataset.cols;
+      const from = e.dataTransfer.getData("text/plain"), to = th.dataset.key;
+      if (!from || from === to) return;
+      let order = loadColOrder(storeKey).filter((k) => k !== from);
+      order.splice(order.indexOf(to), 0, from);   // drop dragged column before the target
+      try { localStorage.setItem(storeKey, JSON.stringify(order)); } catch (e2) {}
+      if (COL_RERENDER[storeKey]) COL_RERENDER[storeKey]();
+    });
+  });
+}
+
 /* ---------- render: tracked wallets ---------- */
+let lastStructData = [];
 function renderStructure(data) {
+  if (data) lastStructData = data; else data = lastStructData;
+  COL_RERENDER[POS_STORE] = () => renderStructure();
   POS = []; PANEL = {};
+  const cols = orderedCols(POS_STORE);
   let html = "";
   data.forEach((w, wi) => {
     const addrShort = w.addr.slice(0, 6) + "…" + w.addr.slice(-4);
@@ -578,27 +653,17 @@ function renderStructure(data) {
     else if (!w.positions.length) body = `<div class="state">No open positions.</div>`;
     else {
       const rows = w.positions.map((p) => {
-        const i = POS.length; p.wi = wi; POS.push(p);
-        const sideCls = p.side === "LONG" ? "long" : "short", kindCls = p.kind === "Stock" ? "stock" : "crypto";
-        return `<tr>
-          <td class="num odate lft">${fmtDate(p.opened)}</td>
-          <td class="asset lft"><span class="coin">${esc(p.coin)}</span><span class="chip ${kindCls}">${p.kind}</span></td>
-          <td><span class="side ${sideCls}">${p.side}</span></td>
-          <td class="num c-val" data-i="${i}">—</td>
-          <td class="num">${fmtPrice(p.entry)}</td>
-          <td class="num liq">${fmtPrice(p.liq)}</td>
-          <td class="num">${esc(p.lev)}</td>
-          <td class="num">${fmtUsd(p.margin)}</td>
-          <td class="num c-pnl" data-i="${i}"><span class="v">—</span><span class="roe c-roe">—</span></td>
-        </tr>`;
+        const i = POS.length; p.wi = wi; p._i = i; POS.push(p);
+        return `<tr>${cols.map((c) => c.cell(p)).join("")}</tr>`;
       }).join("");
-      body = `<div class="tablewrap"><table>
-        <thead><tr><th class="lft">Opened</th><th class="lft">Asset</th><th>Side</th><th>Size</th><th>Entry</th><th>Liq</th><th>Lev</th><th>Margin</th><th>uPnL</th></tr></thead>
+      body = `<div class="tablewrap"><table data-cols="${POS_STORE}">${colHead(cols)}
         <tbody>${rows}</tbody></table></div>`;
     }
     html += `<section class="panel"><header class="phead"><div class="whead"><span class="wlabel">${esc(w.label)}</span>${w.copied ? '<span class="chip botchip">BOT</span>' : ''}<a class="waddr" href="https://hypurrscan.io/address/${w.addr}" target="_blank" rel="noopener">${addrShort}</a></div><div class="wright"><span class="meta" id="meta${wi}"></span><button class="xbtn" title="Stop tracking" onclick="delWallet('${w.addr}')">\u00d7</button></div></header>${body}</section>`;
   });
-  document.getElementById("app").innerHTML = html;
+  const app = document.getElementById("app");
+  app.innerHTML = html;
+  wireColDrag(app);
   const tc = document.getElementById("trackCount"); if (tc) tc.textContent = data.length + (data.length === 1 ? " wallet" : " wallets");
   POS.forEach((p, i) => { p.cVal = document.querySelector(`.c-val[data-i="${i}"]`); const td = document.querySelector(`.c-pnl[data-i="${i}"]`); p.cPnl = td; p.cRoe = td ? td.querySelector(".c-roe") : null; });
   data.forEach((w, wi) => { PANEL[wi] = document.getElementById(`meta${wi}`); });
