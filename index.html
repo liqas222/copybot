@@ -490,19 +490,31 @@ async function getOpenDatesCached(addr) {
 async function getClosedTrades(addr) {
   try {
     const fills = await post({ type: "userFills", user: addr });
+    // group per coin and walk chronologically so we can pair each close with the
+    // time its position cycle was opened (Hyperliquid fills carry no open date directly).
+    const grp = {};
+    for (const f of fills || []) { const c = f.coin || ""; const bare = c.includes(":") ? c.split(":")[1] : c; (grp[bare] = grp[bare] || []).push(f); }
     const out = [];
-    for (const f of fills || []) {
-      const cp = parseFloat(f.closedPnl || 0);
-      if (!cp) continue;                       // only realized (closing) fills
-      const c = f.coin || "", bare = c.includes(":") ? c.split(":")[1] : c;
-      const px = parseFloat(f.px || 0), sz = Math.abs(parseFloat(f.sz || 0)), fee = parseFloat(f.fee || 0);
-      const dir = String(f.dir || "");
-      const side = dir.includes("Long") ? "LONG" : dir.includes("Short") ? "SHORT" : (f.side === "A" ? "LONG" : "SHORT");
-      const notional = px * sz;
-      out.push({ coin: bare, side, pnl: cp - fee, pct: notional > 0 ? (cp / notional) * 100 : 0, time: f.time });
+    for (const coin in grp) {
+      const arr = grp[coin].sort((a, b) => a.time - b.time);
+      let openT = null;
+      for (const f of arr) {
+        const start = parseFloat(f.startPosition || 0), sz = parseFloat(f.sz || 0);
+        const after = start + (f.side === "B" ? sz : -sz);
+        if (Math.abs(start) < 1e-9 && Math.abs(after) > 1e-9) openT = f.time;   // cycle opened here
+        const cp = parseFloat(f.closedPnl || 0);
+        if (cp) {                                                               // realized (closing) fill
+          const px = parseFloat(f.px || 0), asz = Math.abs(sz), fee = parseFloat(f.fee || 0);
+          const dir = String(f.dir || "");
+          const side = dir.includes("Long") ? "LONG" : dir.includes("Short") ? "SHORT" : (f.side === "A" ? "LONG" : "SHORT");
+          const notional = px * asz;
+          out.push({ coin, side, pnl: cp - fee, pct: notional > 0 ? (cp / notional) * 100 : 0, time: f.time, opened: openT });
+        }
+        if (Math.abs(after) < 1e-9) openT = null;                              // back to flat
+      }
     }
     out.sort((a, b) => b.time - a.time);
-    return out.slice(0, 30);
+    return out.slice(0, 60);
   } catch (e) { return []; }
 }
 let myClosed = [];
@@ -512,11 +524,21 @@ async function fetchMyClosed() {
   myClosed = (await getClosedTrades(MY_WALLET)).filter((t) => t.time >= CLOSED_FROM);
   renderMyClosed();
 }
+let lastBotStatus = null;
+function renderAllClosed() { renderMyClosed(); if (lastBotStatus) renderBotClosed(lastBotStatus); }
 function renderMyClosed() {
   const el = document.getElementById("myClosed"); if (!el) return;
-  COL_RERENDER[CLOSED_STORE] = renderMyClosed;
+  COL_RERENDER[CLOSED_STORE] = renderAllClosed;
   if (!MY_SET) { el.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span></header><div class="state small">—</div>`; return; }
-  const table = buildColTable(CLOSED_STORE, myClosed, "No closed trades since 13.06.", true);
+  // Hyperliquid's closed fills carry no leverage; reuse the leverage of a still-open
+  // position on the same asset when available, so ROE can be shown leveraged.
+  const levMap = {}; for (const p of MYPOS || []) if (p.levNum) levMap[p.coin] = p.levNum;
+  const rows = myClosed.map((t) => {
+    const lev = levMap[t.coin] || null;
+    return { opened: t.opened, coin: t.coin, side: t.side, lev,
+             pnl: t.pnl, roe: lev ? (t.pct / 100) * lev : null };
+  });
+  const table = buildColTable(CLOSED_STORE, rows, "No closed trades since 13.06.", true);
   const realized = myClosed.reduce((a, t) => a + t.pnl, 0);
   const wins = myClosed.filter((t) => t.pnl > 0).length;
   const wr = myClosed.length ? Math.round(100 * wins / myClosed.length) : 0;
@@ -588,11 +610,12 @@ const POS_COLS = [
   { key: "upnl", label: "uPnL", cell: (p) => `<td class="num c-pnl" data-i="${p._i}"><span class="v">—</span><span class="roe c-roe">—</span></td>` },
 ];
 const CLOSED_COLS = [
-  { key: "closed", label: "Closed", lft: true, cell: (t) => `<td class="num odate lft">${fmtDate(t.time)}</td>` },
+  { key: "opened", label: "Opened", lft: true, cell: (t) => `<td class="num odate lft">${t.opened ? fmtDate(t.opened) : "—"}</td>` },
   { key: "asset", label: "Asset", lft: true, cell: (t) => `<td class="asset lft"><span class="coin">${esc(t.coin)}</span></td>` },
   { key: "side", label: "Side", cell: (t) => `<td><span class="side ${t.side === "LONG" ? "long" : "short"}">${t.side}</span></td>` },
+  { key: "lev", label: "Lev", cell: (t) => `<td class="num">${t.lev ? esc(t.lev) + "×" : "—"}</td>` },
   { key: "pnl", label: "PnL", cell: (t) => `<td class="num ${t.pnl >= 0 ? "pos" : "neg"}">${fmtSignedC(t.pnl)}</td>` },
-  { key: "roe", label: "ROE%", cell: (t) => `<td class="num ${t.pct >= 0 ? "pos" : "neg"}">${(t.pct >= 0 ? "+" : "") + t.pct.toFixed(1)}%</td>` },
+  { key: "roe", label: "ROE", cell: (t) => `<td class="num ${(t.roe || 0) >= 0 ? "pos" : "neg"}">${t.roe == null ? "—" : (t.roe >= 0 ? "+" : "") + (t.roe * 100).toFixed(1) + "%"}</td>` },
 ];
 const COL_DEFS = { [POS_STORE]: POS_COLS, [CLOSED_STORE]: CLOSED_COLS };
 const COL_RERENDER = {};   // storeKey -> re-render fn (wired by each renderer)
@@ -915,23 +938,21 @@ function renderBotTg(s) {
        <div class="setnote">You'll get a Telegram message on every open / close / TP.</div>`;
   el.innerHTML = `<header class="phead"><span class="wlabel">Notifications</span></header><div class="pbody">${body}</div>`;
 }
-function closedRowHtml(coin, side, pnl, pct, time) {
-  const sc = side === "LONG" ? "long" : "short";
-  return `<div class="ctrade">
-    <div class="ctleft"><span class="ctmini ${sc}">${side}</span><span class="ctcoin">${esc(coin)}</span><span class="ctdate">${fmtDate(time)}</span></div>
-    <div class="ctright"><span class="ctpnl ${pnl >= 0 ? "pos" : "neg"}">${fmtSignedC(pnl)}</span><span class="ctpct ${pct >= 0 ? "pos" : "neg"}">${(pct >= 0 ? "+" : "") + pct.toFixed(1)}%</span></div>
-  </div>`;
-}
 function renderBotClosed(s) {
   const el = document.getElementById("botClosed"); if (!el) return;
+  lastBotStatus = s;
+  COL_RERENDER[CLOSED_STORE] = renderAllClosed;
   const closed = s.closed || [], st = s.closed_stats || { count: 0, realized: 0, win_rate: 0 };
-  const rows = closed.length
-    ? closed.map((t) => closedRowHtml(t.bare || t.coin, t.side, t.pnl, (t.roe || 0) * 100, t.closed_ms)).join("")
-    : `<div class="state small">No closed trades yet.</div>`;
+  const rows = closed.map((t) => ({
+    opened: t.opened_ms, coin: t.bare || t.coin, side: t.side,
+    lev: t.lev, pnl: t.pnl, roe: t.roe == null ? null : t.roe,
+  }));
+  const table = buildColTable(CLOSED_STORE, rows, "No closed trades yet.", true);
   const meta = st.count
     ? `${st.count} · <span class="${st.realized >= 0 ? "pos" : "neg"}">${fmtSigned(st.realized)}</span> · ${st.win_rate}% W`
     : "";
-  el.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span><span class="meta">${meta}</span></header><div class="pbody">${rows}</div>`;
+  el.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span><span class="meta">${meta}</span></header><div class="pbody">${table}</div>`;
+  wireColDrag(el);
 }
 function renderBotLog(s) {
   const el = document.getElementById("botLog");
