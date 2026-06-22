@@ -31,6 +31,12 @@ from concurrent.futures import ThreadPoolExecutor
 WHALE            = "0x0c349d9b92fbd172bbb5a17a9db0a673a6a10ad3"
 SOURCE_URL       = "https://api.hyperliquid.xyz"        # read whale from MAINNET
 
+# Your own wallet — NOT copied, only logged: the bot records each of your real
+# trades with the actual leverage/margin it sees while the position is open, so
+# the dashboard can show exact ROE (Hyperliquid doesn't report leverage for
+# already-closed trades). Logging only covers trades opened while the bot runs.
+MY_WALLET        = "0x2a62f939cd2E36293c9e1ef73FdCA33daC8bcf95"
+
 PAPER_MODE       = True          # <- simulate (no money). Set False for real trading.
 PAPER_START      = 1000.0        # virtual starting capital for paper mode
 
@@ -85,6 +91,9 @@ EX   = {"ex": None}
 # virtual book for paper mode
 PAPER = {"cash": PAPER_START, "pos": {}, "hist": [], "closed": []}   # pos: key(tuple) -> dict; hist: [[t_ms, equity], ...]; closed: [trade dicts]
 HIST_EVERY = 60       # seconds between equity snapshots for the chart
+
+# log of YOUR real trades (MY_WALLET): open snapshot -> closed trade with exact ROE
+MINE = {"pos": {}, "closed": []}   # pos: key(tuple) -> snapshot dict; closed: [trade dicts]
 
 
 # ---------------- notifications + log ----------------
@@ -514,6 +523,8 @@ def save_paper(day_start_eq, day):
                 "pos": {("%s|%s" % k): v for k, v in PAPER["pos"].items()},
                 "hist": PAPER["hist"][-3000:],
                 "closed": PAPER.get("closed", [])[-500:],
+                "mine_pos": {("%s|%s" % k): v for k, v in MINE["pos"].items()},
+                "mine_closed": MINE.get("closed", [])[-500:],
                 "day_start_eq": day_start_eq,
                 "day": day.isoformat()}
         tmp = PAPER_FILE + ".tmp"
@@ -534,6 +545,11 @@ def load_paper():
             PAPER["pos"][(dex, bare)] = v
         PAPER["hist"] = d.get("hist") or []
         PAPER["closed"] = d.get("closed") or []
+        MINE["pos"] = {}
+        for ks, v in (d.get("mine_pos") or {}).items():
+            dex, bare = ks.split("|", 1)
+            MINE["pos"][(dex, bare)] = v
+        MINE["closed"] = d.get("mine_closed") or []
         ds = d.get("day_start_eq", PAPER["cash"])
         day = (datetime.date.fromisoformat(d["day"]) if d.get("day")
                else datetime.datetime.now(datetime.timezone.utc).date())
@@ -588,6 +604,60 @@ def closed_summary():
             "win_rate": round(100.0 * wins / len(c), 1) if c else 0.0,
             "realized": round(total, 2)}
 
+# ---- log YOUR real trades (MY_WALLET) with the real leverage seen while open ----
+_mymiss = {}        # key -> consecutive CONFIRMED-absent polls (debounced close)
+_myfirst = True     # first poll = baseline: pre-existing positions have unknown open time
+
+def my_closed_summary():
+    c = MINE.get("closed", [])
+    wins = sum(1 for t in c if t["pnl"] > 0)
+    total = sum(t["pnl"] for t in c)
+    return {"count": len(c), "wins": wins,
+            "win_rate": round(100.0 * wins / len(c), 1) if c else 0.0,
+            "realized": round(total, 2)}
+
+def log_my_trades(mine_now, myok):
+    """Update open snapshots and record closed trades for MY_WALLET. Call inside LOCK
+    (no network here — positions are fetched in the loop). Uses the real leverage/margin
+    Hyperliquid reports while a position is open, so closed-trade ROE is exact."""
+    global _myfirst
+    now_ms = int(time.time() * 1000)
+    for key, w in mine_now.items():
+        mk = w["mark"] or w["entry"] or 0
+        szabs = abs(w["szi"])
+        lev = w["lev"] or 1
+        margin = (mk * szabs / lev) if lev else (mk * szabs)
+        if key in MINE["pos"]:
+            MINE["pos"][key].update(entry=w["entry"], lev=lev, mode=w["mode"], side=w["side"],
+                                    sz=szabs, margin=margin, last_mark=mk)
+        else:
+            MINE["pos"][key] = {"bare": w["bare"], "coin": w["coin"], "dex": w["dex"],
+                                "side": w["side"], "entry": w["entry"], "lev": lev,
+                                "mode": w["mode"], "sz": szabs, "margin": margin, "last_mark": mk,
+                                "opened_ms": 0 if _myfirst else now_ms}
+        _mymiss[key] = 0
+    for key in list(MINE["pos"].keys()):
+        if key in mine_now:
+            continue
+        if key[0] not in myok:
+            continue                       # that dex wasn't read this poll -> leave untouched
+        _mymiss[key] = _mymiss.get(key, 0) + 1
+        if _mymiss[key] >= CLOSE_CONFIRM:
+            p = MINE["pos"].pop(key); _mymiss.pop(key, None)
+            sign = 1 if p["side"] == "LONG" else -1
+            exitpx = p.get("last_mark") or p["entry"]
+            pnl = sign * p["sz"] * (exitpx - p["entry"])
+            roe = (pnl / p["margin"]) if p["margin"] else 0.0
+            MINE["closed"].append({
+                "bare": p["bare"], "coin": p["coin"], "kind": "Stock" if p["dex"] else "Crypto",
+                "side": p["side"], "entry": p["entry"], "exit": exitpx,
+                "lev": int(round(p["lev"])) if p.get("lev") else 1, "mode": p["mode"], "margin": round(p["margin"], 2),
+                "pnl": round(pnl, 2), "roe": round(roe, 4),
+                "opened_ms": p.get("opened_ms", 0), "closed_ms": now_ms})
+            if len(MINE["closed"]) > 500:
+                del MINE["closed"][:len(MINE["closed"]) - 500]
+    _myfirst = False
+
 def build_positions(whale, mids):
     out = []
     for key, p in PAPER["pos"].items():
@@ -615,6 +685,8 @@ def publish_state(equity, day_start_eq, killed, whale, mids):
                  history=PAPER["hist"][-1500:],
                  closed=list(reversed(PAPER.get("closed", [])[-80:])),
                  closed_stats=closed_summary(),
+                 my_closed=list(reversed(MINE.get("closed", [])[-120:])),
+                 my_closed_stats=my_closed_summary(),
                  pnl_24h=round(perf_window(equity, 86400000), 2),
                  pnl_7d=round(perf_window(equity, 604800000), 2),
                  pnl_30d=round(perf_window(equity, 2592000000), 2),
@@ -653,6 +725,10 @@ def run_paper():
                 whale = {k: v for k, v in whale.items() if v["bare"] in COIN_WHITELIST}
             try:    mids = hl_post(SOURCE_URL, {"type": "allMids"})
             except Exception: mids = {}
+
+            # read YOUR wallet too (logged, not copied) — done outside the lock
+            try:    mine_now, myok = get_positions_ex(SOURCE_URL, MY_WALLET)
+            except Exception: mine_now, myok = {}, set()
 
             # First successful read of a dex = baseline: its CURRENT positions are
             # pre-existing -> mark 'known' so they are NEVER copied. Only positions
@@ -712,6 +788,7 @@ def run_paper():
                                 events.append("🔻 CLOSED %s (whale exit) — PnL $%.2f" % (p["bare"], pnl))
                     # else: that dex wasn't read this poll -> unknown, leave untouched
 
+                log_my_trades(mine_now, myok)
                 equity = paper_equity(whale, mids)
                 publish_state(equity, day_start_eq, killed, whale, mids)
                 save_paper(day_start_eq, day)

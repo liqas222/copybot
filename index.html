@@ -546,23 +546,30 @@ function closedCardHtml(t) {
     </div>
   </div>`;
 }
-let lastBotStatus = null;
+let lastBotStatus = null, botMyClosed = null;   // botMyClosed: exact bot-logged trades (real leverage)
 function renderMyClosed() {
   const el = document.getElementById("myClosed"); if (!el) return;
   if (!MY_SET) { el.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span></header><div class="state small">—</div>`; return; }
-  // Hyperliquid's closed fills carry no leverage: use the real leverage if the asset
-  // is still open, else fall back to MY_DEFAULT_LEV so ROE = Return% × leverage.
+  // Exact rows the bot logged server-side (real leverage/ROE), filtered to >= 13.06.
+  const botRows = (botMyClosed || [])
+    .filter((t) => (t.closed_ms || 0) >= CLOSED_FROM)
+    .map((t) => ({ opened: t.opened_ms, coin: t.bare || t.coin, side: t.side, lev: t.lev,
+                   pnl: t.pnl, roe: t.roe == null ? null : t.roe, ts: t.closed_ms }));
+  // Estimate from Hyperliquid fills for older trades the bot didn't witness. Leverage
+  // isn't in closed fills, so use the real leverage if the asset is still open, else
+  // MY_DEFAULT_LEV. Drop any trade the bot already logged (same coin within 30s).
   const levMap = {}; for (const p of MYPOS || []) if (p.levNum) levMap[p.coin] = p.levNum;
-  const rows = myClosed.map((t) => {
-    const lev = levMap[t.coin] || MY_DEFAULT_LEV;
-    return { opened: t.opened, coin: t.coin, side: t.side, lev,
-             pnl: t.pnl, roe: lev ? (t.pct / 100) * lev : null };
-  });
+  const cliRows = myClosed
+    .map((t) => { const lev = levMap[t.coin] || MY_DEFAULT_LEV;
+                  return { opened: t.opened, coin: t.coin, side: t.side, lev,
+                           pnl: t.pnl, roe: lev ? (t.pct / 100) * lev : null, ts: t.time }; })
+    .filter((c) => !botRows.some((b) => b.coin === c.coin && Math.abs((b.ts || 0) - (c.ts || 0)) < 30000));
+  const rows = botRows.concat(cliRows).sort((a, b) => (b.ts || 0) - (a.ts || 0));
   const body = rows.length ? rows.map(closedCardHtml).join("") : `<div class="state small">No closed trades since 13.06.</div>`;
-  const realized = myClosed.reduce((a, t) => a + t.pnl, 0);
-  const wins = myClosed.filter((t) => t.pnl > 0).length;
-  const wr = myClosed.length ? Math.round(100 * wins / myClosed.length) : 0;
-  const meta = myClosed.length ? `${myClosed.length} · <span class="${realized >= 0 ? "pos" : "neg"}">${fmtSigned(realized)}</span> · ${wr}% W` : "";
+  const realized = rows.reduce((a, t) => a + t.pnl, 0);
+  const wins = rows.filter((t) => t.pnl > 0).length;
+  const wr = rows.length ? Math.round(100 * wins / rows.length) : 0;
+  const meta = rows.length ? `${rows.length} · <span class="${realized >= 0 ? "pos" : "neg"}">${fmtSigned(realized)}</span> · ${wr}% W` : "";
   el.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span><span class="meta">${meta}</span></header><div class="pbody">${body}</div>`;
 }
 
@@ -858,6 +865,7 @@ async function pollBot() {
   } catch (e) {
     setLed("ledBot", false); setLed("ledTg", null);
     botSettingsReady = false; lastTgOn = null; botPosEmpty = false;
+    botMyClosed = null; renderMyClosed();   // bot offline -> fall back to the fills estimate
     const off = (id, title) => { const x = document.getElementById(id); if (x) { x.innerHTML = `<header class="phead"><span class="wlabel">${title}</span></header><div class="state small">\u2014</div>`; x.dataset.built = ""; } };
     const port = document.getElementById("botPortfolio");
     if (port) port.innerHTML = `<header class="phead"><span class="wlabel">Copy-Bot</span><span class="botbadge off">\u26aa Offline</span></header><div class="state small">Bot offline \u2014 appears as soon as the bot is running and serving this page.</div>`;
@@ -905,6 +913,8 @@ function renderBot(s) {
   renderBotPerf(s);
   renderBotPositions(s);
   renderBotClosed(s);
+  botMyClosed = Array.isArray(s.my_closed) ? s.my_closed : null;
+  renderMyClosed();
   renderBotLog(s);
 }
 function renderBotPortfolio(s) {
