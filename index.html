@@ -632,6 +632,7 @@ const POS_COLS = [
   { key: "side", label: "Side", cell: (p) => `<td><span class="side ${p.side === "LONG" ? "long" : "short"}">${p.side}</span></td>` },
   { key: "size", label: "Size", cell: (p) => `<td class="num c-val" data-i="${p._i}">—</td>` },
   { key: "entry", label: "Entry", cell: (p) => `<td class="num">${fmtPrice(p.entry)}</td>` },
+  { key: "mark", label: "Mark", cell: (p) => `<td class="num c-mark" data-i="${p._i}">—</td>` },
   { key: "liq", label: "Liq", cell: (p) => `<td class="num liq">${fmtPrice(p.liq)}</td>` },
   { key: "lev", label: "Lev", cell: (p) => `<td class="num">${esc(p.lev)}</td>` },
   { key: "mode", label: "Mode", cell: (p) => `<td><span class="chip ${p.mode === "isolated" ? "iso" : "cross"}">${p.mode ? p.mode.charAt(0).toUpperCase() + p.mode.slice(1) : "—"}</span></td>` },
@@ -703,7 +704,7 @@ function renderStructure(data) {
   app.innerHTML = html;
   wireColDrag(app);
   const tc = document.getElementById("trackCount"); if (tc) tc.textContent = data.length + (data.length === 1 ? " wallet" : " wallets");
-  POS.forEach((p, i) => { p.cVal = document.querySelector(`.c-val[data-i="${i}"]`); const td = document.querySelector(`.c-pnl[data-i="${i}"]`); p.cPnl = td; p.cRoe = td ? td.querySelector(".c-roe") : null; });
+  POS.forEach((p, i) => { p.cVal = document.querySelector(`.c-val[data-i="${i}"]`); p.cMark = document.querySelector(`.c-mark[data-i="${i}"]`); const td = document.querySelector(`.c-pnl[data-i="${i}"]`); p.cPnl = td; p.cRoe = td ? td.querySelector(".c-roe") : null; });
   data.forEach((w, wi) => { PANEL[wi] = document.getElementById(`meta${wi}`); });
   tick();
 }
@@ -795,6 +796,7 @@ function tick() {
   for (const p of POS) {
     const mark = markFor(p), value = Math.abs(p.szi) * mark, upnl = p.szi * (mark - p.entry), roe = p.margin > 0 ? upnl / p.margin : 0;
     setCell(p.cVal, fmtUsd(value)); setPnl(p.cPnl, upnl);
+    if (p.cMark) setCell(p.cMark, fmtPrice(mark));
     if (p.cRoe) p.cRoe.textContent = fmtPct(roe);
     const t = totals[p.wi] || (totals[p.wi] = { v: 0, p: 0, n: 0 }); t.v += value; t.p += upnl; t.n += 1;
   }
