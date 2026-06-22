@@ -1,0 +1,13 @@
+# Secrets & runtime state — never commit these (they live only on the server)
+secrets.json
+paper_state.json
+config.json
+link.txt
+
+# Python
+__pycache__/
+*.pyc
+*.tmp
+
+# Claude Code local settings (optional)
+.claude/
