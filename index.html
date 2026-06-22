@@ -213,6 +213,8 @@
   .chip.stock { color: #d8b46a; border-color: #4a3d20; }
   .chip.crypto { color: #7fb0e6; border-color: #243a52; }
   .chip.botchip { color: #9fb558; border-color: #586733; }
+  .chip.cross { color: #7fb0e6; border-color: #243a52; }
+  .chip.iso { color: #d8a06a; border-color: #4a3320; }
   .side { font-weight: 650; font-size: 13px; padding: 2px 8px; border-radius: 5px; }
   .side.long, .mside.long { color: var(--long); background: rgba(46,189,133,.12); }
   .side.short, .mside.short { color: var(--short); background: rgba(246,70,93,.12); }
@@ -632,6 +634,7 @@ const POS_COLS = [
   { key: "entry", label: "Entry", cell: (p) => `<td class="num">${fmtPrice(p.entry)}</td>` },
   { key: "liq", label: "Liq", cell: (p) => `<td class="num liq">${fmtPrice(p.liq)}</td>` },
   { key: "lev", label: "Lev", cell: (p) => `<td class="num">${esc(p.lev)}</td>` },
+  { key: "mode", label: "Mode", cell: (p) => `<td><span class="chip ${p.mode === "isolated" ? "iso" : "cross"}">${p.mode ? p.mode.charAt(0).toUpperCase() + p.mode.slice(1) : "—"}</span></td>` },
   { key: "margin", label: "Margin", cell: (p) => `<td class="num">${fmtUsd(p.margin)}</td>` },
   { key: "upnl", label: "uPnL", cell: (p) => `<td class="num c-pnl" data-i="${p._i}"><span class="v">—</span><span class="roe c-roe">—</span></td>` },
 ];
