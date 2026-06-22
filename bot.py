@@ -3,8 +3,8 @@
 Hyperliquid Copy-Trading Bot  ·  v3  (PAPER mode + 24/7 service + dashboard)
 ============================================================================
 Reads the tracked whale from MAINNET and copies its trades. It serves the
-dashboard + a live status panel, reachable from any device via a free
-Cloudflare tunnel (printed at startup and written to link.txt).
+dashboard + a live status panel, reachable from any device via a
+Tailscale Funnel (a fixed …ts.net URL).
 
 Three modes (set below):
   * PAPER_MODE = True  -> simulates copying into a virtual $1000 account
@@ -13,7 +13,7 @@ Three modes (set below):
   * PAPER_MODE = False + EXEC_URL = MAINNET  -> LIVE real money (needs config.json)
 
 Rules (all modes): copy opens & exits · 1/5 equity margin/trade · max 5 positions
-· leverage cross->min(his,10x) / isolated->exact(<=40x) · TP +20% ROE ·
+· leverage cross->min(his,20x) / isolated->exact(<=40x) · TP +20% ROE ·
 no SL · daily -25% kill-switch · all coins.
 
 RUN:
