@@ -221,17 +221,19 @@
   .c-pnl.neg .v, .neg { color: var(--short); }
   .roe { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
   .state { padding: 28px 16px; text-align: center; color: var(--muted); }
-  .ctrade { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 0; border-top: 1px solid var(--line); }
+  .ctrade { display: flex; flex-direction: column; gap: 3px; padding: 9px 0; border-top: 1px solid var(--line); }
   .ctrade:first-child { border-top: none; }
-  .ctleft { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .ctrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+  .ctl { display: flex; align-items: center; gap: 7px; min-width: 0; }
   .ctcoin { font-weight: 600; font-size: 13px; letter-spacing: .3px; }
-  .ctdate { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .ctlev { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .ctdate { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .ctmini { font-size: 10px; padding: 1px 5px; border-radius: 4px; font-weight: 650; }
   .ctmini.long { color: var(--long); background: rgba(46,189,133,.12); }
   .ctmini.short { color: var(--short); background: rgba(246,70,93,.12); }
-  .ctright { text-align: right; white-space: nowrap; }
+  .ctsub { font-family: var(--mono); }
   .ctpnl { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
-  .ctpct { display: block; font-family: var(--mono); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+  .ctpct { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; }
   .foot { color: var(--muted); font-size: 12px; text-align: center; margin-top: 26px; }
   .ranges { display: flex; gap: 6px; margin-bottom: 10px; }
   .rbtn { flex: 1; background: #161b22; color: var(--muted); border: 1px solid var(--line); border-radius: 7px;
@@ -329,6 +331,10 @@ let walletsSig = "";
 
 // ====== YOUR OWN WALLET — paste your Hyperliquid address here ======
 let MY_WALLET = "0x2a62f939cd2E36293c9e1ef73FdCA33daC8bcf95";
+// Hyperliquid doesn't report leverage for CLOSED trades, so for your own
+// closed trades ROE = Return% × this leverage (used only when the asset
+// isn't currently open). Change it to match how you usually trade.
+let MY_DEFAULT_LEV = 10;
 // ==================================================================
 
 const STRUCT_MS = 20000;
@@ -524,27 +530,40 @@ async function fetchMyClosed() {
   myClosed = (await getClosedTrades(MY_WALLET)).filter((t) => t.time >= CLOSED_FROM);
   renderMyClosed();
 }
+// Compact closed-trade card (fits the 300px side panels — no horizontal scroll).
+// Shows all six fields: Opened · Asset · Side · Lev · PnL · ROE.
+function closedCardHtml(t) {
+  const sc = t.side === "LONG" ? "long" : "short";
+  const roeTxt = t.roe == null ? "—" : (t.roe >= 0 ? "+" : "") + (t.roe * 100).toFixed(1) + "%";
+  return `<div class="ctrade">
+    <div class="ctrow">
+      <span class="ctl"><span class="ctmini ${sc}">${t.side}</span><span class="ctcoin">${esc(t.coin)}</span>${t.lev ? `<span class="ctlev">${esc(t.lev)}×</span>` : ""}</span>
+      <span class="ctdate">${t.opened ? fmtDate(t.opened) : "—"}</span>
+    </div>
+    <div class="ctrow ctsub">
+      <span class="ctpnl ${t.pnl >= 0 ? "pos" : "neg"}">${fmtSignedC(t.pnl)}</span>
+      <span class="ctpct ${(t.roe || 0) >= 0 ? "pos" : "neg"}">${roeTxt}</span>
+    </div>
+  </div>`;
+}
 let lastBotStatus = null;
-function renderAllClosed() { renderMyClosed(); if (lastBotStatus) renderBotClosed(lastBotStatus); }
 function renderMyClosed() {
   const el = document.getElementById("myClosed"); if (!el) return;
-  COL_RERENDER[CLOSED_STORE] = renderAllClosed;
   if (!MY_SET) { el.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span></header><div class="state small">—</div>`; return; }
-  // Hyperliquid's closed fills carry no leverage; reuse the leverage of a still-open
-  // position on the same asset when available, so ROE can be shown leveraged.
+  // Hyperliquid's closed fills carry no leverage: use the real leverage if the asset
+  // is still open, else fall back to MY_DEFAULT_LEV so ROE = Return% × leverage.
   const levMap = {}; for (const p of MYPOS || []) if (p.levNum) levMap[p.coin] = p.levNum;
   const rows = myClosed.map((t) => {
-    const lev = levMap[t.coin] || null;
+    const lev = levMap[t.coin] || MY_DEFAULT_LEV;
     return { opened: t.opened, coin: t.coin, side: t.side, lev,
              pnl: t.pnl, roe: lev ? (t.pct / 100) * lev : null };
   });
-  const table = buildColTable(CLOSED_STORE, rows, "No closed trades since 13.06.", true);
+  const body = rows.length ? rows.map(closedCardHtml).join("") : `<div class="state small">No closed trades since 13.06.</div>`;
   const realized = myClosed.reduce((a, t) => a + t.pnl, 0);
   const wins = myClosed.filter((t) => t.pnl > 0).length;
   const wr = myClosed.length ? Math.round(100 * wins / myClosed.length) : 0;
   const meta = myClosed.length ? `${myClosed.length} · <span class="${realized >= 0 ? "pos" : "neg"}">${fmtSigned(realized)}</span> · ${wr}% W` : "";
-  el.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span><span class="meta">${meta}</span></header><div class="pbody">${table}</div>`;
-  wireColDrag(el);
+  el.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span><span class="meta">${meta}</span></header><div class="pbody">${body}</div>`;
 }
 
 async function fetchMarks() {
@@ -597,7 +616,7 @@ function setCell(el, text) { if (!el || el.textContent === text) return; el.text
 function setPnl(el, val) { if (!el) return; el.classList.toggle("pos", val >= 0); el.classList.toggle("neg", val < 0); setCell(el.querySelector(".v"), fmtSigned(val)); }
 
 /* ---------- reorderable table columns (drag headers; order saved in localStorage) ---------- */
-const POS_STORE = "hlPosCols", CLOSED_STORE = "hlClosedCols";
+const POS_STORE = "hlPosCols";
 const POS_COLS = [
   { key: "opened", label: "Opened", lft: true, cell: (p) => `<td class="num odate lft">${fmtDate(p.opened)}</td>` },
   { key: "asset", label: "Asset", lft: true, cell: (p) => `<td class="asset lft"><span class="coin">${esc(p.coin)}</span><span class="chip ${p.kind === "Stock" ? "stock" : "crypto"}">${p.kind}</span></td>` },
@@ -609,15 +628,7 @@ const POS_COLS = [
   { key: "margin", label: "Margin", cell: (p) => `<td class="num">${fmtUsd(p.margin)}</td>` },
   { key: "upnl", label: "uPnL", cell: (p) => `<td class="num c-pnl" data-i="${p._i}"><span class="v">—</span><span class="roe c-roe">—</span></td>` },
 ];
-const CLOSED_COLS = [
-  { key: "opened", label: "Opened", lft: true, cell: (t) => `<td class="num odate lft">${t.opened ? fmtDate(t.opened) : "—"}</td>` },
-  { key: "asset", label: "Asset", lft: true, cell: (t) => `<td class="asset lft"><span class="coin">${esc(t.coin)}</span></td>` },
-  { key: "side", label: "Side", cell: (t) => `<td><span class="side ${t.side === "LONG" ? "long" : "short"}">${t.side}</span></td>` },
-  { key: "lev", label: "Lev", cell: (t) => `<td class="num">${t.lev ? esc(t.lev) + "×" : "—"}</td>` },
-  { key: "pnl", label: "PnL", cell: (t) => `<td class="num ${t.pnl >= 0 ? "pos" : "neg"}">${fmtSignedC(t.pnl)}</td>` },
-  { key: "roe", label: "ROE", cell: (t) => `<td class="num ${(t.roe || 0) >= 0 ? "pos" : "neg"}">${t.roe == null ? "—" : (t.roe >= 0 ? "+" : "") + (t.roe * 100).toFixed(1) + "%"}</td>` },
-];
-const COL_DEFS = { [POS_STORE]: POS_COLS, [CLOSED_STORE]: CLOSED_COLS };
+const COL_DEFS = { [POS_STORE]: POS_COLS };
 const COL_RERENDER = {};   // storeKey -> re-render fn (wired by each renderer)
 
 function loadColOrder(storeKey) {
@@ -635,12 +646,6 @@ function orderedCols(storeKey) {
 function colHead(cols) {
   return "<thead><tr>" + cols.map((c) =>
     `<th class="drag-th${c.lft ? " lft" : ""}" draggable="true" data-key="${c.key}">${c.label}</th>`).join("") + "</tr></thead>";
-}
-function buildColTable(storeKey, rowsData, emptyMsg, narrow) {
-  if (!rowsData.length) return `<div class="state small">${emptyMsg}</div>`;
-  const cols = orderedCols(storeKey);
-  const body = rowsData.map((d) => `<tr>${cols.map((c) => c.cell(d)).join("")}</tr>`).join("");
-  return `<div class="tablewrap"><table data-cols="${storeKey}"${narrow ? ' class="narrow"' : ""}>${colHead(cols)}<tbody>${body}</tbody></table></div>`;
 }
 function wireColDrag(root) {
   root.querySelectorAll("table[data-cols] thead th.drag-th").forEach((th) => {
@@ -941,18 +946,16 @@ function renderBotTg(s) {
 function renderBotClosed(s) {
   const el = document.getElementById("botClosed"); if (!el) return;
   lastBotStatus = s;
-  COL_RERENDER[CLOSED_STORE] = renderAllClosed;
   const closed = s.closed || [], st = s.closed_stats || { count: 0, realized: 0, win_rate: 0 };
   const rows = closed.map((t) => ({
     opened: t.opened_ms, coin: t.bare || t.coin, side: t.side,
     lev: t.lev, pnl: t.pnl, roe: t.roe == null ? null : t.roe,
   }));
-  const table = buildColTable(CLOSED_STORE, rows, "No closed trades yet.", true);
+  const body = rows.length ? rows.map(closedCardHtml).join("") : `<div class="state small">No closed trades yet.</div>`;
   const meta = st.count
     ? `${st.count} · <span class="${st.realized >= 0 ? "pos" : "neg"}">${fmtSigned(st.realized)}</span> · ${st.win_rate}% W`
     : "";
-  el.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span><span class="meta">${meta}</span></header><div class="pbody">${table}</div>`;
-  wireColDrag(el);
+  el.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span><span class="meta">${meta}</span></header><div class="pbody">${body}</div>`;
 }
 function renderBotLog(s) {
   const el = document.getElementById("botLog");
