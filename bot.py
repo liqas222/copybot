@@ -517,7 +517,7 @@ def start_server():
 # ---------------- paper persistence + display helpers ----------------
 PAPER_FILE = os.path.join(HERE, "paper_state.json")
 
-def save_paper(day_start_eq, day):
+def save_paper(day_start_eq, day_start_cash, day):
     try:
         data = {"cash": PAPER["cash"],
                 "pos": {("%s|%s" % k): v for k, v in PAPER["pos"].items()},
@@ -526,6 +526,7 @@ def save_paper(day_start_eq, day):
                 "mine_pos": {("%s|%s" % k): v for k, v in MINE["pos"].items()},
                 "mine_closed": MINE.get("closed", [])[-500:],
                 "day_start_eq": day_start_eq,
+                "day_start_cash": day_start_cash,
                 "day": day.isoformat()}
         tmp = PAPER_FILE + ".tmp"
         json.dump(data, open(tmp, "w"))
@@ -551,9 +552,10 @@ def load_paper():
             MINE["pos"][(dex, bare)] = v
         MINE["closed"] = d.get("mine_closed") or []
         ds = d.get("day_start_eq", PAPER["cash"])
+        dsc = d.get("day_start_cash", PAPER["cash"])
         day = (datetime.date.fromisoformat(d["day"]) if d.get("day")
                else datetime.datetime.now(datetime.timezone.utc).date())
-        return ds, day
+        return ds, dsc, day
     except Exception as e:
         print("load_paper error:", e)
         return None
@@ -704,12 +706,13 @@ def run_paper():
     print("\n>>> Dashboard:  http://<server-ip>/   (token: %s)\n" % DASH_TOKEN)
 
     if loaded:
-        day_start_eq, day = loaded
+        day_start_eq, day_start_cash, day = loaded
         tg("💾 Previous paper state loaded · cash $%.2f · %d open position(s)"
            % (PAPER["cash"], len(PAPER["pos"])))
     else:
         day = datetime.datetime.now(datetime.timezone.utc).date()
         day_start_eq = PAPER_START
+        day_start_cash = PAPER_START
     killed = False
     known = set(PAPER["pos"].keys())   # whale keys we already account for (baseline + copied)
     based = set()                      # dexes whose baseline has been established (read OK once)
@@ -745,7 +748,7 @@ def run_paper():
                 with LOCK:
                     eq = paper_equity(whale, mids)
                     publish_state(eq, day_start_eq, killed, whale, mids)
-                    save_paper(day_start_eq, day)
+                    save_paper(day_start_eq, day_start_cash, day)
                 tg("👀 Watching from now — existing whale positions are NOT copied. Only NEW ones, confirmed %d× (open & close)." % CLOSE_CONFIRM)
                 time.sleep(POLL_SECONDS); continue
 
@@ -754,6 +757,7 @@ def run_paper():
                 if today != day:
                     day = today; killed = False
                     day_start_eq = paper_equity(whale, mids)
+                    day_start_cash = PAPER["cash"]
                     events.append("🌅 New day — kill-switch reset.")
 
                 # TP (per-position, locked at open) / liquidation
@@ -791,15 +795,17 @@ def run_paper():
                 log_my_trades(mine_now, myok)
                 equity = paper_equity(whale, mids)
                 publish_state(equity, day_start_eq, killed, whale, mids)
-                save_paper(day_start_eq, day)
+                save_paper(day_start_eq, day_start_cash, day)
 
             for e in events:
                 tg(e)
 
-            # daily kill-switch
-            if not killed and day_start_eq > 0 and equity <= day_start_eq * (1 - DAILY_LOSS_LIMIT):
+            # daily kill-switch — counts only REALIZED losses today (closed trades /
+            # liquidations move PAPER["cash"]); open positions in the red don't trip it.
+            realized_loss = day_start_cash - PAPER["cash"]
+            if not killed and day_start_eq > 0 and realized_loss >= DAILY_LOSS_LIMIT * day_start_eq:
                 killed = True
-                tg("🛑 KILL-SWITCH: −%.0f%% today. No new trades." % (DAILY_LOSS_LIMIT * 100))
+                tg("🛑 KILL-SWITCH: realized −%.0f%% today. No new trades." % (DAILY_LOSS_LIMIT * 100))
 
             # genuine NEW opens only: present on a read dex, not already known,
             # and confirmed for OPEN_CONFIRM consecutive polls (no single-tick blips)
