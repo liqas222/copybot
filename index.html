@@ -939,6 +939,7 @@ function renderBotPortfolio(s) {
       <div class="statrow"><span>Avg leverage</span><span class="num">${pos.length ? avgLev.toFixed(1) + "\u00d7" : "—"}</span></div>
       <div class="botctrl">
         ${s.paused ? `<button class="btn" onclick="botCmd('resume')">\u25b6\ufe0f Resume</button>` : `<button class="btn" onclick="botCmd('pause')">\u23f8 Pause</button>`}
+        <button class="btn" title="Copy currently-open whale positions you don't hold yet, at the whale's entry price" onclick="botAdopt()">\u2795 Adopt open</button>
         <button class="btn danger" onclick="botFlatten()">\ud83e\uddf9 Close all</button>
       </div>
     </div>`;
@@ -1038,6 +1039,7 @@ async function botCmd(cmd) {
   pollBot();
 }
 function botFlatten() { if (confirm("Close ALL positions?")) botCmd("flatten"); }
+function botAdopt() { if (confirm("Copy currently-open whale positions you don't hold yet, at the whale's entry price?")) botCmd("adopt"); }
 let botSettingsReady = false;
 function renderBotSettings(s) {
   const el = document.getElementById("botSettings");

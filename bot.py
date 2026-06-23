@@ -95,6 +95,10 @@ HIST_EVERY = 60       # seconds between equity snapshots for the chart
 # log of YOUR real trades (MY_WALLET): open snapshot -> closed trade with exact ROE
 MINE = {"pos": {}, "closed": []}   # pos: key(tuple) -> snapshot dict; closed: [trade dicts]
 
+# manual "adopt": set by the dashboard -> the loop copies currently-open whale
+# positions we don't hold yet, entered at the whale's OWN entry price.
+ADOPT = {"pending": False}
+
 
 # ---------------- notifications + log ----------------
 _TGQ = queue.Queue()
@@ -404,6 +408,9 @@ class Handler(BaseHTTPRequestHandler):
             STATE["paused"] = False; tg("▶️ Bot resumed (dashboard)")
         elif path == "/flatten":
             threading.Thread(target=flatten_all, daemon=True).start()
+        elif path == "/adopt":
+            ADOPT["pending"] = True
+            tg("➕ Adopt requested — copying current whale positions at their entry…")
         elif path == "/settg":
             ln = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(ln).decode("utf-8", "ignore") if ln > 0 else ""
@@ -806,6 +813,40 @@ def run_paper():
             if not killed and day_start_eq > 0 and realized_loss >= DAILY_LOSS_LIMIT * day_start_eq:
                 killed = True
                 tg("🛑 KILL-SWITCH: realized −%.0f%% today. No new trades." % (DAILY_LOSS_LIMIT * 100))
+
+            # manual adoption: copy any currently-open whale position we don't hold yet,
+            # entered at the whale's OWN entry (as if we'd opened it together with them).
+            # Bypasses pause/kill-switch (it's an explicit user action).
+            if ADOPT["pending"]:
+                ADOPT["pending"] = False
+                adopted = []
+                with LOCK:
+                    for key, w in whale.items():
+                        if key[0] not in okdex or key in PAPER["pos"]:
+                            continue
+                        entry = w["entry"] or w["mark"] or 0
+                        if entry <= 0:
+                            continue
+                        known.add(key)
+                        if len(PAPER["pos"]) >= MAX_POSITIONS:
+                            adopted.append("⏭️ %s not adopted — %d slots full." % (w["bare"], MAX_POSITIONS)); continue
+                        eq = paper_equity(whale, mids)
+                        margin = eq * CAPITAL_FRACTION
+                        lev = my_leverage(w["lev"], w["mode"])
+                        sz = (margin * lev) / entry
+                        tp = SET["tp_stock"] if w["dex"] else SET["tp_crypto"]
+                        PAPER["pos"][key] = {"bare": w["bare"], "coin": w["coin"], "dex": w["dex"],
+                                             "side": w["side"], "entry": entry, "lev": lev,
+                                             "mode": w["mode"], "sz": sz, "margin": margin, "tp": tp,
+                                             "opened": time.strftime("%H:%M:%S"),
+                                             "opened_ms": int(time.time() * 1000)}
+                        adopted.append("✅ ADOPTED %s %s @ $%.4f (whale entry) · margin $%.2f · %dx %s · TP +%.0f%% ROE"
+                                       % (w["bare"], w["side"], entry, margin, lev,
+                                          "Cross" if w["mode"] == "cross" else "Isolated", tp * 100))
+                for m in adopted:
+                    tg(m)
+                if not adopted:
+                    tg("ℹ️ Adopt: no open whale position to copy (all already held).")
 
             # genuine NEW opens only: present on a read dex, not already known,
             # and confirmed for OPEN_CONFIRM consecutive polls (no single-tick blips)
