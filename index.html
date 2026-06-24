@@ -570,7 +570,7 @@ function closedCardHtml(t, clickAttr) {
   </div>`;
 }
 let lastBotStatus = null, botMyClosed = null;   // botMyClosed: exact bot-logged trades (real leverage)
-let myClosedShown = [], botClosedShown = [];    // currently-rendered closed rows (for the detail popup)
+let myClosedShown = [], botClosedShown = [], botPosShown = [];   // currently-rendered rows (for the detail popup)
 
 /* ---------- trade detail popup ---------- */
 function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
@@ -626,6 +626,15 @@ function openMyPos(i) {
     coin: p.coin, kind: p.kind, side: p.side, lev: p.levNum || null, mode: p.mode,
     entry: p.entry, mark, liq: p.liq, size: Math.abs(p.szi), value, margin: p.margin,
     pnl: upnl, roe, opened: p.opened,
+  });
+}
+function openBotPos(i) {
+  const p = botPosShown[i]; if (!p) return;
+  openTradeModal({
+    src: "Copy-Bot position (paper)",
+    coin: p.bare || p.coin, kind: p.kind, side: p.side, lev: p.lev, mode: p.mode,
+    entry: p.entry, mark: p.mark, size: Math.abs(p.sz), value: Math.abs(p.sz) * (p.mark || 0),
+    margin: p.margin, pnl: p.upnl, roe: p.roe, opened: p.opened,
   });
 }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeTrade(); });
@@ -1110,7 +1119,8 @@ function renderBotPositions(s) {
   botPosEmpty = false;
   const totV = pos.reduce((a, p) => a + Math.abs(p.sz) * (p.mark || 0), 0);
   const totP = pos.reduce((a, p) => a + (p.upnl || 0), 0);
-  const cards = pos.map((p) => `<div class="mrow2"><span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+  botPosShown = pos;
+  const cards = pos.map((p, i) => `<div class="mrow2" role="button" tabindex="0" onclick="openBotPos(${i})"><span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
       <div class="mtop"><span class="odate">${fmtDate(p.opened)}</span> <span class="mcoin">${esc(p.bare)}</span> <span class="mside ${p.side === "LONG" ? "long" : "short"}">${p.side}</span></div>
       <div class="mstats">
         <span>Size <b class="num">${fmtUsd(Math.abs(p.sz) * (p.mark || 0))}</b></span>
