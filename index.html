@@ -92,6 +92,15 @@
   .mctip b { display: block; font-family: var(--mono); }
   .mctip span { color: var(--muted); font-size: 11px; }
   svg.spark { display: block; width: 100%; height: 30px; }
+  .tgrid { padding: 6px 18px 18px; overflow-y: auto; max-height: calc(90vh - 60px); }
+  .trow { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; }
+  .trow:first-child { border-top: none; }
+  .tk { color: var(--muted); }
+  .tv { font-variant-numeric: tabular-nums; text-align: right; font-weight: 550; }
+  tr.prow { cursor: pointer; }
+  tr.prow:hover td { background: rgba(255,255,255,.035); }
+  .ctrade[role=button] { cursor: pointer; border-radius: 6px; }
+  .ctrade[role=button]:hover { background: rgba(255,255,255,.035); }
   .movers { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   .movhd { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); margin-bottom: 7px; }
   .movrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; font-size: 13px; }
@@ -324,6 +333,16 @@
       <div class="modalchart" id="mcChart"><div class="state">Loading…</div></div>
     </div>
   </div>
+  <div id="tradeModal" class="modal" style="display:none" aria-hidden="true">
+    <div class="modalbg" onclick="closeTrade()"></div>
+    <div class="modalcard" role="dialog" aria-modal="true" style="width:min(460px,94vw)">
+      <header class="mhead">
+        <div class="mtitle"><span class="mcoinbig" id="tmTitle">—</span></div>
+        <button class="mclose" onclick="closeTrade()" aria-label="Close">✕</button>
+      </header>
+      <div class="tgrid" id="tmBody"></div>
+    </div>
+  </div>
 <script>
 let WALLETS = [
   { addr: "0x0c349d9b92fbd172bbb5a17a9db0a673a6a10ad3", label: "Wallet 1", copied: true },
@@ -516,7 +535,7 @@ async function getClosedTrades(addr) {
           const dir = String(f.dir || "");
           const side = dir.includes("Long") ? "LONG" : dir.includes("Short") ? "SHORT" : (f.side === "A" ? "LONG" : "SHORT");
           const notional = px * asz;
-          out.push({ coin, side, pnl: cp - fee, pct: notional > 0 ? (cp / notional) * 100 : 0, time: f.time, opened: openT });
+          out.push({ coin, side, pnl: cp - fee, pct: notional > 0 ? (cp / notional) * 100 : 0, exit: px, time: f.time, opened: openT });
         }
         if (Math.abs(after) < 1e-9) openT = null;                              // back to flat
       }
@@ -534,10 +553,10 @@ async function fetchMyClosed() {
 }
 // Compact closed-trade card (fits the 300px side panels — no horizontal scroll).
 // Shows all six fields: Opened · Asset · Side · Lev · PnL · ROE.
-function closedCardHtml(t) {
+function closedCardHtml(t, clickAttr) {
   const sc = t.side === "LONG" ? "long" : "short";
   const roeTxt = t.roe == null ? "—" : (t.roe >= 0 ? "+" : "") + (t.roe * 100).toFixed(1) + "%";
-  return `<div class="ctrade">
+  return `<div class="ctrade" ${clickAttr || ""}>
     <div class="ctrow">
       <span class="ctl"><span class="ctmini ${sc}">${t.side}</span><span class="ctcoin">${esc(t.coin)}</span>${t.lev ? `<span class="ctlev">${esc(t.lev)}×</span>` : ""}</span>
       <span class="ctdate">${t.opened ? fmtDate(t.opened) : "—"}</span>
@@ -549,25 +568,79 @@ function closedCardHtml(t) {
   </div>`;
 }
 let lastBotStatus = null, botMyClosed = null;   // botMyClosed: exact bot-logged trades (real leverage)
+let myClosedShown = [], botClosedShown = [];    // currently-rendered closed rows (for the detail popup)
+
+/* ---------- trade detail popup ---------- */
+function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+function fmtDateTime(ts) { if (!ts) return null; const d = new Date(ts), p = (n) => String(n).padStart(2, "0"); return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; }
+function pnlSpan(v) { return `<span class="${v >= 0 ? "pos" : "neg"}">${fmtSignedC(v)}</span>`; }
+function pctSpan(v) { return `<span class="${v >= 0 ? "pos" : "neg"}">${(v >= 0 ? "+" : "") + v.toFixed(2)}%</span>`; }
+function openTradeModal(d) {
+  const sc = d.side === "LONG" ? "long" : "short";
+  const F = [
+    ["Source", d.src],
+    ["Type", d.kind],
+    ["Side", d.side ? `<span class="side ${sc}">${d.side}</span>` : null],
+    ["Leverage", d.lev != null ? esc(d.lev) + "×" : null],
+    ["Margin mode", d.mode ? cap(d.mode) : null],
+    ["Entry price", d.entry ? fmtPrice(d.entry) : null],
+    ["Mark price", d.mark ? fmtPrice(d.mark) : null],
+    ["Exit price", d.exit ? fmtPrice(d.exit) : null],
+    ["Liq. price", d.liq ? fmtPrice(d.liq) : null],
+    ["Size", d.size != null ? (Math.round(d.size * 1e6) / 1e6) : null],
+    ["Position value", d.value != null ? fmtUsdC(d.value) : null],
+    ["Margin", d.margin != null ? fmtUsdC(d.margin) : null],
+    ["PnL", d.pnl != null ? pnlSpan(d.pnl) : null],
+    ["ROE", d.roe != null ? pctSpan(d.roe * 100) : null],
+    ["Return % (price)", d.returnPct != null ? pctSpan(d.returnPct) : null],
+    ["Opened", fmtDateTime(d.opened)],
+    ["Closed", fmtDateTime(d.closed)],
+    ["Reason", d.reason || null],
+  ];
+  const rowsHtml = F.filter((f) => f[1] != null && f[1] !== "").map((f) => `<div class="trow"><span class="tk">${f[0]}</span><span class="tv">${f[1]}</span></div>`).join("");
+  document.getElementById("tmTitle").innerHTML = `${esc(d.coin || "Trade")}${d.lev != null ? ` <span class="chip">${esc(d.lev)}×</span>` : ""}`;
+  document.getElementById("tmBody").innerHTML = rowsHtml;
+  const m = document.getElementById("tradeModal");
+  m.style.display = "flex"; m.setAttribute("aria-hidden", "false");
+}
+function closeTrade() { const m = document.getElementById("tradeModal"); m.style.display = "none"; m.setAttribute("aria-hidden", "true"); }
+function openClosed(srcKey, i) { const arr = srcKey === "my" ? myClosedShown : botClosedShown; const d = arr && arr[i]; if (d) openTradeModal(d); }
+function openPos(i) {
+  const p = POS[i]; if (!p) return;
+  const mark = markFor(p), value = Math.abs(p.szi) * mark, upnl = p.szi * (mark - p.entry), roe = p.margin > 0 ? upnl / p.margin : 0;
+  const wlabel = (lastStructData && lastStructData[p.wi]) ? lastStructData[p.wi].label : null;
+  openTradeModal({
+    src: "Open position" + (wlabel ? " · " + wlabel : ""),
+    coin: p.coin, kind: p.kind, side: p.side, lev: p.levNum || null, mode: p.mode,
+    entry: p.entry, mark, liq: p.liq, size: Math.abs(p.szi), value, margin: p.margin,
+    pnl: upnl, roe, opened: p.opened,
+  });
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeTrade(); });
 function renderMyClosed() {
   const el = document.getElementById("myClosed"); if (!el) return;
   if (!MY_SET) { el.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span></header><div class="state small">—</div>`; return; }
   // Exact rows the bot logged server-side (real leverage/ROE), filtered to >= 13.06.
   const botRows = (botMyClosed || [])
     .filter((t) => (t.closed_ms || 0) >= CLOSED_FROM)
-    .map((t) => ({ opened: t.opened_ms, coin: t.bare || t.coin, side: t.side, lev: t.lev,
-                   pnl: t.pnl, roe: t.roe == null ? null : t.roe, ts: t.closed_ms }));
+    .map((t) => ({ opened: t.opened_ms, closed: t.closed_ms, coin: t.bare || t.coin, kind: t.kind,
+                   side: t.side, lev: t.lev, mode: t.mode, entry: t.entry, exit: t.exit,
+                   margin: t.margin, pnl: t.pnl, roe: t.roe == null ? null : t.roe,
+                   reason: t.reason, ts: t.closed_ms, src: "Bot-logged (exact)" }));
   // Estimate from Hyperliquid fills for older trades the bot didn't witness. Leverage
   // isn't in closed fills, so use the real leverage if the asset is still open, else
   // MY_DEFAULT_LEV. Drop any trade the bot already logged (same coin within 30s).
   const levMap = {}; for (const p of MYPOS || []) if (p.levNum) levMap[p.coin] = p.levNum;
   const cliRows = myClosed
-    .map((t) => { const lev = levMap[t.coin] || MY_DEFAULT_LEV;
-                  return { opened: t.opened, coin: t.coin, side: t.side, lev,
-                           pnl: t.pnl, roe: lev ? (t.pct / 100) * lev : null, ts: t.time }; })
+    .map((t) => { const realLev = levMap[t.coin]; const lev = realLev || MY_DEFAULT_LEV;
+                  return { opened: t.opened, closed: t.time, coin: t.coin, side: t.side, lev,
+                           exit: t.exit, pnl: t.pnl, roe: lev ? (t.pct / 100) * lev : null,
+                           returnPct: t.pct, ts: t.time,
+                           src: realLev ? "Fills (real lev)" : "Fills (est. " + MY_DEFAULT_LEV + "×)" }; })
     .filter((c) => !botRows.some((b) => b.coin === c.coin && Math.abs((b.ts || 0) - (c.ts || 0)) < 30000));
   const rows = botRows.concat(cliRows).sort((a, b) => (b.ts || 0) - (a.ts || 0));
-  const body = rows.length ? rows.map(closedCardHtml).join("") : `<div class="state small">No closed trades since 13.06.</div>`;
+  myClosedShown = rows;
+  const body = rows.length ? rows.map((t, i) => closedCardHtml(t, `role="button" tabindex="0" onclick="openClosed('my',${i})"`)).join("") : `<div class="state small">No closed trades since 13.06.</div>`;
   const realized = rows.reduce((a, t) => a + t.pnl, 0);
   const wins = rows.filter((t) => t.pnl > 0).length;
   const wr = rows.length ? Math.round(100 * wins / rows.length) : 0;
@@ -693,7 +766,7 @@ function renderStructure(data) {
     else {
       const rows = w.positions.map((p) => {
         const i = POS.length; p.wi = wi; p._i = i; POS.push(p);
-        return `<tr>${cols.map((c) => c.cell(p)).join("")}</tr>`;
+        return `<tr class="prow" onclick="openPos(${i})">${cols.map((c) => c.cell(p)).join("")}</tr>`;
       }).join("");
       body = `<div class="tablewrap"><table data-cols="${POS_STORE}">${colHead(cols)}
         <tbody>${rows}</tbody></table></div>`;
@@ -964,10 +1037,12 @@ function renderBotClosed(s) {
   lastBotStatus = s;
   const closed = s.closed || [], st = s.closed_stats || { count: 0, realized: 0, win_rate: 0 };
   const rows = closed.map((t) => ({
-    opened: t.opened_ms, coin: t.bare || t.coin, side: t.side,
-    lev: t.lev, pnl: t.pnl, roe: t.roe == null ? null : t.roe,
+    opened: t.opened_ms, closed: t.closed_ms, coin: t.bare || t.coin, kind: t.kind, side: t.side,
+    lev: t.lev, mode: t.mode, entry: t.entry, exit: t.exit, margin: t.margin,
+    pnl: t.pnl, roe: t.roe == null ? null : t.roe, reason: t.reason, src: "Copy-Bot (paper)",
   }));
-  const body = rows.length ? rows.map(closedCardHtml).join("") : `<div class="state small">No closed trades yet.</div>`;
+  botClosedShown = rows;
+  const body = rows.length ? rows.map((t, i) => closedCardHtml(t, `role="button" tabindex="0" onclick="openClosed('bot',${i})"`)).join("") : `<div class="state small">No closed trades yet.</div>`;
   const meta = st.count
     ? `${st.count} · <span class="${st.realized >= 0 ? "pos" : "neg"}">${fmtSigned(st.realized)}</span> · ${st.win_rate}% W`
     : "";
