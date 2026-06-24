@@ -228,6 +228,13 @@
   .chip.botchip { color: #9fb558; border-color: #586733; }
   .chip.cross { color: #7fb0e6; border-color: #243a52; }
   .chip.iso { color: #d8a06a; border-color: #4a3320; }
+  .liqdot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; flex: none; }
+  .liqdot.hi { background: #2ebd85; }
+  .liqdot.mid { background: #d8b46a; }
+  .liqdot.lo { background: #f6465d; }
+  .liqdot.unk { background: #6b7480; }
+  .liqlegend { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: var(--muted); margin-top: 8px; }
+  .liqlegend .liqdot { margin-right: 4px; }
   .side { font-weight: 650; font-size: 13px; padding: 2px 8px; border-radius: 5px; }
   .side.long, .mside.long { color: var(--long); background: rgba(46,189,133,.12); }
   .side.short, .mside.short { color: var(--short); background: rgba(246,70,93,.12); }
@@ -310,6 +317,7 @@
               <button class="btn" onclick="addWallet()">+ Track</button>
             </div>
             <div id="trackMsg" class="setnote"></div>
+            <div class="liqlegend">Liquidität: <span><span class="liqdot hi"></span>liquide</span><span><span class="liqdot mid"></span>mittel</span><span><span class="liqdot lo"></span>illiquide</span><span><span class="liqdot unk"></span>nicht im Hauptmarkt → meiden</span></div>
           </div>
         </section>
         <div id="app"><div class="state">Loading positions…</div></div>
@@ -562,7 +570,7 @@ function closedCardHtml(t, clickAttr) {
   const roeTxt = t.roe == null ? "—" : (t.roe >= 0 ? "+" : "") + (t.roe * 100).toFixed(1) + "%";
   return `<div class="ctrade" ${clickAttr || ""}>
     <div class="ctrow">
-      <span class="ctl"><span class="ctmini ${sc}">${t.side}</span><span class="ctcoin">${esc(t.coin)}</span>${t.lev ? `<span class="ctlev">${esc(t.lev)}×</span>` : ""}</span>
+      <span class="ctl"><span class="ctmini ${sc}">${t.side}</span>${liqDot(t.coin)}<span class="ctcoin">${esc(t.coin)}</span>${t.lev ? `<span class="ctlev">${esc(t.lev)}×</span>` : ""}</span>
       <span class="ctdate">${t.opened ? fmtDate(t.opened) : "—"}</span>
     </div>
     <div class="ctrow ctsub">
@@ -641,7 +649,7 @@ function openTradeModal(d) {
   const peakVal = d.peak != null ? pctSpan(d.peak * 100) : (canRebuild ? `<span id="tmPeak" style="color:var(--muted)">berechne…</span>` : null);
   F.push(["Peak ROE (Höchststand)", peakVal]);
   const rowsHtml = F.filter((f) => f[1] != null && f[1] !== "").map((f) => `<div class="trow"><span class="tk">${f[0]}</span><span class="tv">${f[1]}</span></div>`).join("");
-  document.getElementById("tmTitle").innerHTML = `${esc(d.coin || "Trade")}${d.lev != null ? ` <span class="chip">${esc(d.lev)}×</span>` : ""}`;
+  document.getElementById("tmTitle").innerHTML = `${liqDot(d.coin)}${esc(d.coin || "Trade")}${d.lev != null ? ` <span class="chip">${esc(d.lev)}×</span>` : ""}`;
   document.getElementById("tmBody").innerHTML = rowsHtml;
   const m = document.getElementById("tradeModal");
   m.style.display = "flex"; m.setAttribute("aria-hidden", "false");
@@ -729,6 +737,23 @@ function markFor(p) {
   const mk = parseFloat(v);
   return isFinite(mk) && mk > 0 ? mk : p.baseMark;
 }
+// Liquidity grade per coin from 24h volume — to flag which coins are (un)safe to trade.
+function liqTier(coin) {
+  if (!coin) return null;
+  const mk = mkt[coin];
+  if (mk && mk.vol != null) {
+    const v = mk.vol;
+    if (v >= 50e6) return { c: "hi", t: "Hohe Liquidität · 24h-Vol $" + fmtUsd(v) + " — gut handelbar" };
+    if (v >= 5e6) return { c: "mid", t: "Mittlere Liquidität · 24h-Vol $" + fmtUsd(v) + " — mit Vorsicht" };
+    return { c: "lo", t: "Geringe Liquidität · 24h-Vol $" + fmtUsd(v) + " — besser meiden (enge Liquidation, Slippage)" };
+  }
+  if (mktCount > 0) return { c: "unk", t: "Nicht im Haupt-Perp-Markt — meist geringe Liquidität, Vorsicht" };
+  return null;   // market data not loaded yet
+}
+function liqDot(coin) {
+  const t = liqTier(coin); if (!t) return "";
+  return `<span class="liqdot ${t.c}" title="${esc(t.t)}"></span>`;
+}
 
 /* ---------- format ---------- */
 function fmtPrice(x) { if (!x) return "—"; if (Math.abs(x) >= 1) return "$" + x.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); return "$" + Number(x.toPrecision(4)).toString(); }
@@ -768,7 +793,7 @@ function setPnl(el, val) { if (!el) return; el.classList.toggle("pos", val >= 0)
 const POS_STORE = "hlPosCols";
 const POS_COLS = [
   { key: "opened", label: "Opened", lft: true, cell: (p) => `<td class="num odate lft">${fmtDate(p.opened)}</td>` },
-  { key: "asset", label: "Asset", lft: true, cell: (p) => `<td class="asset lft"><span class="coin">${esc(p.coin)}</span><span class="chip ${p.kind === "Stock" ? "stock" : "crypto"}">${p.kind}</span></td>` },
+  { key: "asset", label: "Asset", lft: true, cell: (p) => `<td class="asset lft">${liqDot(p.coin)}<span class="coin">${esc(p.coin)}</span><span class="chip ${p.kind === "Stock" ? "stock" : "crypto"}">${p.kind}</span></td>` },
   { key: "side", label: "Side", cell: (p) => `<td><span class="side ${p.side === "LONG" ? "long" : "short"}">${p.side}</span></td>` },
   { key: "size", label: "Size", cell: (p) => `<td class="num c-val" data-i="${p._i}">—</td>` },
   { key: "entry", label: "Entry", cell: (p) => `<td class="num">${fmtPrice(p.entry)}</td>` },
@@ -886,7 +911,7 @@ function renderMine() {
   const avgLev = MYPOS.length ? MYPOS.reduce((a, p) => a + (p.levNum || 0), 0) / MYPOS.length : 0;
   const posList = MYPOS.length
     ? MYPOS.map((p, i) => `<div class="mrow2" role="button" tabindex="0" onclick="openMyPos(${i})"><span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
-        <div class="mtop"><span class="odate">${fmtDate(p.opened)}</span> <span class="mcoin">${esc(p.coin)}</span> <span class="mside ${p.side === "LONG" ? "long" : "short"}">${p.side}</span></div>
+        <div class="mtop"><span class="odate">${fmtDate(p.opened)}</span> ${liqDot(p.coin)}<span class="mcoin">${esc(p.coin)}</span> <span class="mside ${p.side === "LONG" ? "long" : "short"}">${p.side}</span></div>
         <div class="mstats">
           <span>Size <b class="num c-msize" data-i="${i}">—</b></span>
           <span>Lev <b class="num">${esc(p.lev)}${p.mode ? " " + p.mode.charAt(0).toUpperCase() + p.mode.slice(1) : ""}</b></span>
@@ -1167,7 +1192,7 @@ function renderBotPositions(s) {
   const totP = pos.reduce((a, p) => a + (p.upnl || 0), 0);
   botPosShown = pos;
   const cards = pos.map((p, i) => `<div class="mrow2" role="button" tabindex="0" onclick="openBotPos(${i})"><span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
-      <div class="mtop"><span class="odate">${fmtDate(p.opened)}</span> <span class="mcoin">${esc(p.bare)}</span> <span class="mside ${p.side === "LONG" ? "long" : "short"}">${p.side}</span></div>
+      <div class="mtop"><span class="odate">${fmtDate(p.opened)}</span> ${liqDot(p.bare)}<span class="mcoin">${esc(p.bare)}</span> <span class="mside ${p.side === "LONG" ? "long" : "short"}">${p.side}</span></div>
       <div class="mstats">
         <span>Size <b class="num">${fmtUsd(Math.abs(p.sz) * (p.mark || 0))}</b></span>
         <span>Lev <b class="num">${p.lev}\u00d7${p.mode ? " " + esc(p.mode.charAt(0).toUpperCase() + p.mode.slice(1)) : ""}</b></span>
