@@ -643,12 +643,11 @@ def log_my_trades(mine_now, myok):
             MINE["pos"][key] = {"bare": w["bare"], "coin": w["coin"], "dex": w["dex"],
                                 "side": w["side"], "entry": w["entry"], "lev": lev,
                                 "mode": w["mode"], "sz": szabs, "margin": margin, "last_mark": mk,
-                                "peak_roe": 0.0, "opened_ms": 0 if _myfirst else now_ms}
+                                "opened_ms": 0 if _myfirst else now_ms}
         cur = MINE["pos"][key]                         # track best ROE reached (for the popup)
         sign = 1 if w["side"] == "LONG" else -1
         roe_now = (sign * szabs * (mk - w["entry"]) / margin) if margin else 0.0
-        if roe_now > cur.get("peak_roe", 0.0):
-            cur["peak_roe"] = roe_now
+        cur["peak_roe"] = max(cur.get("peak_roe", roe_now), roe_now)
         _mymiss[key] = 0
     for key in list(MINE["pos"].keys()):
         if key in mine_now:
@@ -679,12 +678,14 @@ def build_positions(whale, mids):
         sign = 1 if p["side"] == "LONG" else -1
         upnl = sign * p["sz"] * (mk - p["entry"])
         roe = (upnl / p["margin"]) if p["margin"] else 0
+        peak = max(p.get("peak_roe", roe), roe)
+        p["peak_roe"] = peak
         out.append({"bare": p["bare"], "coin": p.get("coin", p["bare"]),
                     "kind": "Stock" if p.get("dex") else "Crypto",
                     "side": p["side"], "sz": p["sz"], "entry": p["entry"], "mark": mk,
                     "lev": p["lev"], "mode": p["mode"], "margin": p["margin"],
                     "upnl": round(upnl, 2), "roe": round(roe, 4),
-                    "peak_roe": round(p.get("peak_roe", 0.0), 4),
+                    "peak_roe": round(peak, 4),
                     "value": abs(p["sz"]) * mk,
                     "opened": p.get("opened_ms", 0)})
     out.sort(key=lambda x: x["value"], reverse=True)
@@ -778,8 +779,7 @@ def run_paper():
                     p = PAPER["pos"][key]
                     pnl = _pnl(key, p, whale, mids)
                     roe = pnl / p["margin"] if p["margin"] else 0
-                    if roe > p.get("peak_roe", 0.0):
-                        p["peak_roe"] = roe            # track best ROE reached (for the popup)
+                    p["peak_roe"] = max(p.get("peak_roe", roe), roe)   # best ROE reached (for the popup)
                     tp = p.get("tp") or (SET["tp_stock"] if p.get("dex") else SET["tp_crypto"])
                     if pnl <= -p["margin"]:
                         PAPER["cash"] -= p["margin"]; PAPER["pos"].pop(key)

@@ -598,7 +598,7 @@ function openTradeModal(d) {
     ["Opened", fmtDateTime(d.opened)],
     ["Closed", fmtDateTime(d.closed)],
     ["Reason", d.reason || null],
-    ["Peak ROE (höchster +)", d.peak != null ? pctSpan(d.peak * 100) : null],
+    ["Peak ROE (Höchststand)", d.peak != null ? pctSpan(d.peak * 100) : null],
   ];
   const rowsHtml = F.filter((f) => f[1] != null && f[1] !== "").map((f) => `<div class="trow"><span class="tk">${f[0]}</span><span class="tv">${f[1]}</span></div>`).join("");
   document.getElementById("tmTitle").innerHTML = `${esc(d.coin || "Trade")}${d.lev != null ? ` <span class="chip">${esc(d.lev)}×</span>` : ""}`;
