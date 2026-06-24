@@ -908,7 +908,8 @@ function renderMine() {
     perf.innerHTML = `<header class="phead"><span class="wlabel">My Performance</span></header><div class="state small">—</div>`;
     return;
   }
-  const avgLev = MYPOS.length ? MYPOS.reduce((a, p) => a + (p.levNum || 0), 0) / MYPOS.length : 0;
+  const myLevs = MYPOS.map((p) => p.levNum).filter((v) => v > 0).concat((myClosedShown || []).map((t) => t.lev).filter((v) => v > 0));
+  const avgLev = myLevs.length ? myLevs.reduce((a, b) => a + b, 0) / myLevs.length : 0;
   const posList = MYPOS.length
     ? MYPOS.map((p, i) => `<div class="mrow2" role="button" tabindex="0" onclick="openMyPos(${i})"><span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
         <div class="mtop"><span class="odate">${fmtDate(p.opened)}</span> ${liqDot(p.coin)}<span class="mcoin">${esc(p.coin)}</span> <span class="mside ${p.side === "LONG" ? "long" : "short"}">${p.side}</span></div>
@@ -928,7 +929,7 @@ function renderMine() {
       <div class="statrow"><span>Unrealized PnL</span><span class="num c-mpnl"><span class="v">—</span></span></div>
       <div class="statrow" title="Funds not tied up in positions — free to withdraw or open new trades"><span>Free</span><span class="num">${fmtUsd(MYACC.withdrawable)}</span></div>
       <div class="statrow"><span>Open positions</span><span class="num">${MYPOS.length}</span></div>
-      <div class="statrow" title="Average leverage across your open positions"><span>Avg leverage</span><span class="num">${MYPOS.length ? avgLev.toFixed(1) + "\u00d7" : "—"}</span></div>
+      <div class="statrow" title="Average leverage across all your trades (open + closed)"><span>Avg leverage</span><span class="num">${myLevs.length ? avgLev.toFixed(1) + "\u00d7" : "—"}</span></div>
       <div class="mlist">${posList}</div>
     </div>`;
   const r = (label, val) => val == null
@@ -1093,7 +1094,8 @@ function renderBotPortfolio(s) {
   const pos = s.positions || [];
   const equity = s.equity || 0;
   const upnl = pos.reduce((a, p) => a + (p.upnl || 0), 0);
-  const avgLev = pos.length ? pos.reduce((a, p) => a + (p.lev || 0), 0) / pos.length : 0;
+  const botLevs = pos.map((p) => p.lev).filter((v) => v > 0).concat((s.closed || []).map((t) => t.lev).filter((v) => v > 0));
+  const avgLev = botLevs.length ? botLevs.reduce((a, b) => a + b, 0) / botLevs.length : 0;
   port.innerHTML = `<header class="phead"><span class="wlabel">Copy-Bot</span>${botBadgeHtml(s)}</header>
     <div class="pbody">
       <div class="hero"><span class="herolabel">Account Value (Paper)</span><span class="heroval num">${fmtUsdC(equity)}</span></div>
@@ -1101,7 +1103,7 @@ function renderBotPortfolio(s) {
       <div class="statrow" title="Realized balance, not tied up in positions"><span>Cash (free)</span><span class="num">${fmtUsdC(s.cash != null ? s.cash : equity)}</span></div>
       <div class="statrow"><span>Daily PnL</span><span class="num ${(s.day_pnl || 0) >= 0 ? "pos" : "neg"}">${fmtSignedC(s.day_pnl || 0)}</span></div>
       <div class="statrow"><span>Open positions</span><span class="num">${s.slots_used || 0} / ${s.max_positions || 5}</span></div>
-      <div class="statrow"><span>Avg leverage</span><span class="num">${pos.length ? avgLev.toFixed(1) + "\u00d7" : "—"}</span></div>
+      <div class="statrow" title="Average leverage across all trades (open + closed)"><span>Avg leverage</span><span class="num">${botLevs.length ? avgLev.toFixed(1) + "\u00d7" : "—"}</span></div>
       <div class="botctrl">
         ${s.paused ? `<button class="btn" onclick="botCmd('resume')">\u25b6\ufe0f Resume</button>` : `<button class="btn" onclick="botCmd('pause')">\u23f8 Pause</button>`}
         <button class="btn" title="Copy currently-open whale positions you don't hold yet, at the whale's entry price" onclick="botAdopt()">\u2795 Adopt open</button>
