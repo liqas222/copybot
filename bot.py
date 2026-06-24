@@ -13,7 +13,7 @@ Three modes (set below):
   * PAPER_MODE = False + EXEC_URL = MAINNET  -> LIVE real money (needs config.json)
 
 Rules (all modes): copy opens & exits · 1/5 equity margin/trade · max 5 positions
-· leverage cross->min(his,20x) / isolated->exact(<=40x) · TP +20% ROE ·
+· leverage fixed 6x (cross & isolated) · TP +10% ROE ·
 no SL · daily -25% kill-switch · all coins.
 
 RUN:
@@ -42,9 +42,8 @@ PAPER_START      = 1000.0        # virtual starting capital for paper mode
 
 CAPITAL_FRACTION = 0.20
 MAX_POSITIONS    = 5
-CROSS_LEV_CAP    = 20      # cross positions: copy whale's leverage but cap at 20x
-MAX_LEV          = 40      # isolated positions: copy exact, capped at 40x
-TP_ROE           = 0.20      # default; live values held in SET (settable from dashboard)
+FIXED_LEV        = 6       # every copied trade uses exactly this leverage (cross & isolated)
+TP_ROE           = 0.10      # default; live values held in SET (settable from dashboard)
 SET = {"tp_crypto": TP_ROE, "tp_stock": TP_ROE}   # take-profit ROE per asset class
 DAILY_LOSS_LIMIT = 0.25
 POLL_SECONDS     = 3
@@ -237,8 +236,7 @@ def round_px(px):
     return round(px, max(0, digits))
 
 def my_leverage(whale_lev, mode):
-    cap = CROSS_LEV_CAP if mode == "cross" else MAX_LEV
-    return max(1, min(int(round(whale_lev)), cap))
+    return FIXED_LEV          # fixed leverage on every trade, regardless of the whale's
 
 
 # ---------------- paper helpers ----------------
