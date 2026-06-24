@@ -101,6 +101,8 @@
   tr.prow:hover td { background: rgba(255,255,255,.035); }
   .ctrade[role=button] { cursor: pointer; border-radius: 6px; }
   .ctrade[role=button]:hover { background: rgba(255,255,255,.035); }
+  .mrow2[role=button] { cursor: pointer; }
+  .mrow2[role=button]:hover { border-color: var(--line2); }
   .movers { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   .movhd { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); margin-bottom: 7px; }
   .movrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; font-size: 13px; }
@@ -616,6 +618,16 @@ function openPos(i) {
     pnl: upnl, roe, opened: p.opened,
   });
 }
+function openMyPos(i) {
+  const p = MYPOS[i]; if (!p) return;
+  const mark = markFor(p), value = Math.abs(p.szi) * mark, upnl = p.szi * (mark - p.entry), roe = p.margin > 0 ? upnl / p.margin : 0;
+  openTradeModal({
+    src: "My open position",
+    coin: p.coin, kind: p.kind, side: p.side, lev: p.levNum || null, mode: p.mode,
+    entry: p.entry, mark, liq: p.liq, size: Math.abs(p.szi), value, margin: p.margin,
+    pnl: upnl, roe, opened: p.opened,
+  });
+}
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeTrade(); });
 function renderMyClosed() {
   const el = document.getElementById("myClosed"); if (!el) return;
@@ -818,7 +830,7 @@ function renderMine() {
   }
   const avgLev = MYPOS.length ? MYPOS.reduce((a, p) => a + (p.levNum || 0), 0) / MYPOS.length : 0;
   const posList = MYPOS.length
-    ? MYPOS.map((p, i) => `<div class="mrow2"><span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+    ? MYPOS.map((p, i) => `<div class="mrow2" role="button" tabindex="0" onclick="openMyPos(${i})"><span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
         <div class="mtop"><span class="odate">${fmtDate(p.opened)}</span> <span class="mcoin">${esc(p.coin)}</span> <span class="mside ${p.side === "LONG" ? "long" : "short"}">${p.side}</span></div>
         <div class="mstats">
           <span>Size <b class="num c-msize" data-i="${i}">—</b></span>
