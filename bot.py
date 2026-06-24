@@ -13,7 +13,7 @@ Three modes (set below):
   * PAPER_MODE = False + EXEC_URL = MAINNET  -> LIVE real money (needs config.json)
 
 Rules (all modes): copy opens & exits · 1/5 equity margin/trade · max 5 positions
-· leverage fixed 6x (cross & isolated) · TP +10% ROE ·
+· leverage fixed 6x (cross & isolated) · TP +12% ROE ·
 no SL · daily -25% kill-switch · all coins.
 
 RUN:
@@ -43,7 +43,7 @@ PAPER_START      = 1000.0        # virtual starting capital for paper mode
 CAPITAL_FRACTION = 0.20
 MAX_POSITIONS    = 5
 FIXED_LEV        = 6       # every copied trade uses exactly this leverage (cross & isolated)
-TP_ROE           = 0.10      # default; live values held in SET (settable from dashboard)
+TP_ROE           = 0.12      # default; live values held in SET (settable from dashboard)
 SET = {"tp_crypto": TP_ROE, "tp_stock": TP_ROE}   # take-profit ROE per asset class
 DAILY_LOSS_LIMIT = 0.25
 POLL_SECONDS     = 3
