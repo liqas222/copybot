@@ -135,6 +135,8 @@
     color: var(--text); padding: 7px 9px; font-size: 14px; text-align: right; font-variant-numeric: tabular-nums; }
   .numin:focus { outline: none; border-color: #2c4f47; }
   .unit { color: var(--muted); font-size: 12px; }
+  .stratbox { border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px 8px; margin-bottom: 14px; background: rgba(255,255,255,.015); }
+  .strathd { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 4px 0 2px; }
   .setnote { margin-top: 9px; font-size: 11px; color: var(--muted); line-height: 1.5; }
   .setnote.ok { color: var(--long); }
   .setnote.err { color: var(--short); }
@@ -1191,6 +1193,14 @@ function renderBotSettings(s) {
   const st = s.tp_stock_pct != null ? s.tp_stock_pct : 20;
   el.innerHTML = `<header class="phead"><span class="wlabel">Copy-Bot Settings</span></header>
     <div class="pbody">
+      <div class="stratbox">
+        <div class="strathd">Strategy</div>
+        <div class="statrow"><span>Leverage</span><span class="num">${s.fixed_lev != null ? s.fixed_lev + "× (fix)" : "—"}</span></div>
+        <div class="statrow"><span>Size per trade</span><span class="num">${s.capital_pct != null ? s.capital_pct + "% equity" : "—"}</span></div>
+        <div class="statrow"><span>Max positions</span><span class="num">${s.max_positions || 5}</span></div>
+        <div class="statrow"><span>Daily kill-switch</span><span class="num">−${s.daily_loss_pct != null ? s.daily_loss_pct : 25}% realized</span></div>
+        <div class="statrow"><span>Take-Profit</span><span class="num">${c}% ROE</span></div>
+      </div>
       <div class="setrow"><label>Take-Profit · Crypto</label><span class="ingrp"><input id="tpCrypto" class="numin" type="number" min="1" max="1000" step="1" value="${c}"><span class="unit">% ROE</span></span></div>
       <div class="setrow"><label>Take-Profit · Stocks</label><span class="ingrp"><input id="tpStock" class="numin" type="number" min="1" max="1000" step="1" value="${st}"><span class="unit">% ROE</span></span></div>
       <button class="btn" onclick="saveTp()">\u2713 Apply</button>

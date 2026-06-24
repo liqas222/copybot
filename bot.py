@@ -391,6 +391,9 @@ class Handler(BaseHTTPRequestHandler):
                 st["tg_chat"] = TG["chat"] if bool(TG["token"]) else ""
                 st["tp_crypto_pct"] = round(SET["tp_crypto"] * 100, 2)
                 st["tp_stock_pct"] = round(SET["tp_stock"] * 100, 2)
+                st["fixed_lev"] = FIXED_LEV
+                st["capital_pct"] = round(CAPITAL_FRACTION * 100, 1)
+                st["daily_loss_pct"] = round(DAILY_LOSS_LIMIT * 100, 1)
                 st["wallets"] = wallets_payload()
                 st["log"] = STATE["log"][-60:]
             return self._send(200, json.dumps(st))
