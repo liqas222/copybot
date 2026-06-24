@@ -598,6 +598,7 @@ function openTradeModal(d) {
     ["Opened", fmtDateTime(d.opened)],
     ["Closed", fmtDateTime(d.closed)],
     ["Reason", d.reason || null],
+    ["Peak ROE (höchster +)", d.peak != null ? pctSpan(d.peak * 100) : null],
   ];
   const rowsHtml = F.filter((f) => f[1] != null && f[1] !== "").map((f) => `<div class="trow"><span class="tk">${f[0]}</span><span class="tv">${f[1]}</span></div>`).join("");
   document.getElementById("tmTitle").innerHTML = `${esc(d.coin || "Trade")}${d.lev != null ? ` <span class="chip">${esc(d.lev)}×</span>` : ""}`;
@@ -634,7 +635,7 @@ function openBotPos(i) {
     src: "Copy-Bot position (paper)",
     coin: p.bare || p.coin, kind: p.kind, side: p.side, lev: p.lev, mode: p.mode,
     entry: p.entry, mark: p.mark, size: Math.abs(p.sz), value: Math.abs(p.sz) * (p.mark || 0),
-    margin: p.margin, pnl: p.upnl, roe: p.roe, opened: p.opened,
+    margin: p.margin, pnl: p.upnl, roe: p.roe, peak: p.peak_roe, opened: p.opened,
   });
 }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeTrade(); });
@@ -647,7 +648,7 @@ function renderMyClosed() {
     .map((t) => ({ opened: t.opened_ms, closed: t.closed_ms, coin: t.bare || t.coin, kind: t.kind,
                    side: t.side, lev: t.lev, mode: t.mode, entry: t.entry, exit: t.exit,
                    margin: t.margin, pnl: t.pnl, roe: t.roe == null ? null : t.roe,
-                   reason: t.reason, ts: t.closed_ms, src: "Bot-logged (exact)" }));
+                   peak: t.peak_roe, reason: t.reason, ts: t.closed_ms, src: "Bot-logged (exact)" }));
   // Estimate from Hyperliquid fills for older trades the bot didn't witness. Leverage
   // isn't in closed fills, so use the real leverage if the asset is still open, else
   // MY_DEFAULT_LEV. Drop any trade the bot already logged (same coin within 30s).
@@ -1060,7 +1061,7 @@ function renderBotClosed(s) {
   const rows = closed.map((t) => ({
     opened: t.opened_ms, closed: t.closed_ms, coin: t.bare || t.coin, kind: t.kind, side: t.side,
     lev: t.lev, mode: t.mode, entry: t.entry, exit: t.exit, margin: t.margin,
-    pnl: t.pnl, roe: t.roe == null ? null : t.roe, reason: t.reason, src: "Copy-Bot (paper)",
+    pnl: t.pnl, roe: t.roe == null ? null : t.roe, peak: t.peak_roe, reason: t.reason, src: "Copy-Bot (paper)",
   }));
   botClosedShown = rows;
   const body = rows.length ? rows.map((t, i) => closedCardHtml(t, `role="button" tabindex="0" onclick="openClosed('bot',${i})"`)).join("") : `<div class="state small">No closed trades yet.</div>`;

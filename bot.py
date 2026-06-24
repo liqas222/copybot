@@ -598,7 +598,7 @@ def record_closed(p, pnl, reason):
         "kind": "Stock" if p.get("dex") else "Crypto",
         "side": p.get("side"), "entry": p.get("entry"),
         "lev": p.get("lev"), "mode": p.get("mode"), "margin": round(p.get("margin", 0), 2),
-        "pnl": round(pnl, 2), "roe": round(roe, 4),
+        "pnl": round(pnl, 2), "roe": round(roe, 4), "peak_roe": round(p.get("peak_roe", 0.0), 4),
         "opened_ms": p.get("opened_ms", 0), "closed_ms": int(time.time() * 1000),
         "reason": reason,
     })
@@ -643,7 +643,12 @@ def log_my_trades(mine_now, myok):
             MINE["pos"][key] = {"bare": w["bare"], "coin": w["coin"], "dex": w["dex"],
                                 "side": w["side"], "entry": w["entry"], "lev": lev,
                                 "mode": w["mode"], "sz": szabs, "margin": margin, "last_mark": mk,
-                                "opened_ms": 0 if _myfirst else now_ms}
+                                "peak_roe": 0.0, "opened_ms": 0 if _myfirst else now_ms}
+        cur = MINE["pos"][key]                         # track best ROE reached (for the popup)
+        sign = 1 if w["side"] == "LONG" else -1
+        roe_now = (sign * szabs * (mk - w["entry"]) / margin) if margin else 0.0
+        if roe_now > cur.get("peak_roe", 0.0):
+            cur["peak_roe"] = roe_now
         _mymiss[key] = 0
     for key in list(MINE["pos"].keys()):
         if key in mine_now:
@@ -661,7 +666,7 @@ def log_my_trades(mine_now, myok):
                 "bare": p["bare"], "coin": p["coin"], "kind": "Stock" if p["dex"] else "Crypto",
                 "side": p["side"], "entry": p["entry"], "exit": exitpx,
                 "lev": int(round(p["lev"])) if p.get("lev") else 1, "mode": p["mode"], "margin": round(p["margin"], 2),
-                "pnl": round(pnl, 2), "roe": round(roe, 4),
+                "pnl": round(pnl, 2), "roe": round(roe, 4), "peak_roe": round(p.get("peak_roe", 0.0), 4),
                 "opened_ms": p.get("opened_ms", 0), "closed_ms": now_ms})
             if len(MINE["closed"]) > 500:
                 del MINE["closed"][:len(MINE["closed"]) - 500]
@@ -679,6 +684,7 @@ def build_positions(whale, mids):
                     "side": p["side"], "sz": p["sz"], "entry": p["entry"], "mark": mk,
                     "lev": p["lev"], "mode": p["mode"], "margin": p["margin"],
                     "upnl": round(upnl, 2), "roe": round(roe, 4),
+                    "peak_roe": round(p.get("peak_roe", 0.0), 4),
                     "value": abs(p["sz"]) * mk,
                     "opened": p.get("opened_ms", 0)})
     out.sort(key=lambda x: x["value"], reverse=True)
@@ -772,6 +778,8 @@ def run_paper():
                     p = PAPER["pos"][key]
                     pnl = _pnl(key, p, whale, mids)
                     roe = pnl / p["margin"] if p["margin"] else 0
+                    if roe > p.get("peak_roe", 0.0):
+                        p["peak_roe"] = roe            # track best ROE reached (for the popup)
                     tp = p.get("tp") or (SET["tp_stock"] if p.get("dex") else SET["tp_crypto"])
                     if pnl <= -p["margin"]:
                         PAPER["cash"] -= p["margin"]; PAPER["pos"].pop(key)
