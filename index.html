@@ -526,20 +526,20 @@ async function getClosedTrades(addr) {
     const out = [];
     for (const coin in grp) {
       const arr = grp[coin].sort((a, b) => a.time - b.time);
-      let openT = null;
+      let openT = null, openPx = 0;
       for (const f of arr) {
         const start = parseFloat(f.startPosition || 0), sz = parseFloat(f.sz || 0);
         const after = start + (f.side === "B" ? sz : -sz);
-        if (Math.abs(start) < 1e-9 && Math.abs(after) > 1e-9) openT = f.time;   // cycle opened here
+        if (Math.abs(start) < 1e-9 && Math.abs(after) > 1e-9) { openT = f.time; openPx = parseFloat(f.px || 0); }   // cycle opened here
         const cp = parseFloat(f.closedPnl || 0);
         if (cp) {                                                               // realized (closing) fill
           const px = parseFloat(f.px || 0), asz = Math.abs(sz), fee = parseFloat(f.fee || 0);
           const dir = String(f.dir || "");
           const side = dir.includes("Long") ? "LONG" : dir.includes("Short") ? "SHORT" : (f.side === "A" ? "LONG" : "SHORT");
           const notional = px * asz;
-          out.push({ coin, side, pnl: cp - fee, pct: notional > 0 ? (cp / notional) * 100 : 0, exit: px, time: f.time, opened: openT });
+          out.push({ coin, side, pnl: cp - fee, pct: notional > 0 ? (cp / notional) * 100 : 0, entry: openPx, exit: px, time: f.time, opened: openT });
         }
-        if (Math.abs(after) < 1e-9) openT = null;                              // back to flat
+        if (Math.abs(after) < 1e-9) { openT = null; openPx = 0; }              // back to flat
       }
     }
     out.sort((a, b) => b.time - a.time);
@@ -573,6 +573,35 @@ let lastBotStatus = null, botMyClosed = null;   // botMyClosed: exact bot-logged
 let myClosedShown = [], botClosedShown = [], botPosShown = [];   // currently-rendered rows (for the detail popup)
 
 /* ---------- trade detail popup ---------- */
+const _peakCache = {};   // reconstructed peak ROE per closed trade
+let _peakReq = 0;
+// Reconstruct the highest ROE a closed trade reached, from Hyperliquid candles:
+// best favourable price (high for LONG, low for SHORT) between open & close × leverage.
+async function reconstructPeak(d) {
+  if (!(d.entry > 0) || !d.opened || !d.closed || !d.side || !d.lev) return null;
+  const key = d.coin + "|" + d.opened + "|" + d.closed + "|" + d.entry + "|" + d.lev;
+  if (key in _peakCache) return _peakCache[key];
+  const span = d.closed - d.opened;
+  const ivs = [["1m", 60000], ["5m", 300000], ["15m", 900000], ["1h", 3600000], ["4h", 14400000], ["1d", 86400000]];
+  let iv = ivs[ivs.length - 1];
+  for (const it of ivs) { if (span / it[1] <= 500) { iv = it; break; } }   // keep candle count sane
+  try {
+    const c = await post({ type: "candleSnapshot", req: { coin: d.coin, interval: iv[0], startTime: d.opened - iv[1], endTime: d.closed + iv[1] } });
+    const arr = Array.isArray(c) ? c : [];
+    let best = null;
+    for (const k of arr) {
+      const t = +k.t;
+      if (t + iv[1] <= d.opened || t >= d.closed) continue;   // candle overlaps the trade window
+      const fav = d.side === "LONG" ? parseFloat(k.h) : parseFloat(k.l);
+      if (!isFinite(fav)) continue;
+      const exc = d.side === "LONG" ? (fav - d.entry) / d.entry : (d.entry - fav) / d.entry;
+      if (best == null || exc > best) best = exc;
+    }
+    const peak = best == null ? null : best * d.lev;
+    _peakCache[key] = peak;
+    return peak;
+  } catch (e) { _peakCache[key] = null; return null; }
+}
 function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
 function fmtDateTime(ts) { if (!ts) return null; const d = new Date(ts), p = (n) => String(n).padStart(2, "0"); return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; }
 function pnlSpan(v) { return `<span class="${v >= 0 ? "pos" : "neg"}">${fmtSignedC(v)}</span>`; }
@@ -598,13 +627,22 @@ function openTradeModal(d) {
     ["Opened", fmtDateTime(d.opened)],
     ["Closed", fmtDateTime(d.closed)],
     ["Reason", d.reason || null],
-    ["Peak ROE (Höchststand)", d.peak != null ? pctSpan(d.peak * 100) : null],
   ];
+  // Peak ROE: live value if the bot tracked it; otherwise reconstruct from candles.
+  const myReq = ++_peakReq;
+  const canRebuild = d.peak == null && d.closed && d.entry > 0 && d.opened && d.side && d.lev;
+  const peakVal = d.peak != null ? pctSpan(d.peak * 100) : (canRebuild ? `<span id="tmPeak" style="color:var(--muted)">berechne…</span>` : null);
+  F.push(["Peak ROE (Höchststand)", peakVal]);
   const rowsHtml = F.filter((f) => f[1] != null && f[1] !== "").map((f) => `<div class="trow"><span class="tk">${f[0]}</span><span class="tv">${f[1]}</span></div>`).join("");
   document.getElementById("tmTitle").innerHTML = `${esc(d.coin || "Trade")}${d.lev != null ? ` <span class="chip">${esc(d.lev)}×</span>` : ""}`;
   document.getElementById("tmBody").innerHTML = rowsHtml;
   const m = document.getElementById("tradeModal");
   m.style.display = "flex"; m.setAttribute("aria-hidden", "false");
+  if (canRebuild) reconstructPeak(d).then((peak) => {
+    if (myReq !== _peakReq) return;                 // a newer popup opened
+    const el = document.getElementById("tmPeak"); if (!el) return;
+    el.outerHTML = peak == null ? "n/a" : pctSpan(peak * 100);
+  });
 }
 function closeTrade() { const m = document.getElementById("tradeModal"); m.style.display = "none"; m.setAttribute("aria-hidden", "true"); }
 function openClosed(srcKey, i) { const arr = srcKey === "my" ? myClosedShown : botClosedShown; const d = arr && arr[i]; if (d) openTradeModal(d); }
@@ -656,7 +694,7 @@ function renderMyClosed() {
   const cliRows = myClosed
     .map((t) => { const realLev = levMap[t.coin]; const lev = realLev || MY_DEFAULT_LEV;
                   return { opened: t.opened, closed: t.time, coin: t.coin, side: t.side, lev,
-                           exit: t.exit, pnl: t.pnl, roe: lev ? (t.pct / 100) * lev : null,
+                           entry: t.entry, exit: t.exit, pnl: t.pnl, roe: lev ? (t.pct / 100) * lev : null,
                            returnPct: t.pct, ts: t.time,
                            src: realLev ? "Fills (real lev)" : "Fills (est. " + MY_DEFAULT_LEV + "×)" }; })
     .filter((c) => !botRows.some((b) => b.coin === c.coin && Math.abs((b.ts || 0) - (c.ts || 0)) < 30000));
