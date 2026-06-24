@@ -585,22 +585,27 @@ async function reconstructPeak(d) {
   const ivs = [["1m", 60000], ["5m", 300000], ["15m", 900000], ["1h", 3600000], ["4h", 14400000], ["1d", 86400000]];
   let iv = ivs[ivs.length - 1];
   for (const it of ivs) { if (span / it[1] <= 500) { iv = it; break; } }   // keep candle count sane
-  try {
-    const c = await post({ type: "candleSnapshot", req: { coin: d.coin, interval: iv[0], startTime: d.opened - iv[1], endTime: d.closed + iv[1] } });
-    const arr = Array.isArray(c) ? c : [];
-    let best = null;
-    for (const k of arr) {
-      const t = +k.t;
-      if (t + iv[1] <= d.opened || t >= d.closed) continue;   // candle overlaps the trade window
-      const fav = d.side === "LONG" ? parseFloat(k.h) : parseFloat(k.l);
-      if (!isFinite(fav)) continue;
-      const exc = d.side === "LONG" ? (fav - d.entry) / d.entry : (d.entry - fav) / d.entry;
-      if (best == null || exc > best) best = exc;
-    }
-    const peak = best == null ? null : best * d.lev;
-    _peakCache[key] = peak;
-    return peak;
-  } catch (e) { _peakCache[key] = null; return null; }
+  const coins = [d.coin, d.rawCoin].filter((c, i, a) => c && a.indexOf(c) === i);   // try bare, then dex-prefixed
+  let best = null;
+  for (const cn of coins) {
+    try {
+      const c = await post({ type: "candleSnapshot", req: { coin: cn, interval: iv[0], startTime: d.opened - iv[1], endTime: d.closed + iv[1] } });
+      const arr = Array.isArray(c) ? c : [];
+      if (!arr.length) continue;
+      for (const k of arr) {
+        const t = +k.t;
+        if (t + iv[1] <= d.opened || t >= d.closed) continue;   // candle overlaps the trade window
+        const fav = d.side === "LONG" ? parseFloat(k.h) : parseFloat(k.l);
+        if (!isFinite(fav)) continue;
+        const exc = d.side === "LONG" ? (fav - d.entry) / d.entry : (d.entry - fav) / d.entry;
+        if (best == null || exc > best) best = exc;
+      }
+      if (best != null) break;
+    } catch (e) { /* try next coin form */ }
+  }
+  const peak = best == null ? null : best * d.lev;
+  _peakCache[key] = peak;
+  return peak;
 }
 function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
 function fmtDateTime(ts) { if (!ts) return null; const d = new Date(ts), p = (n) => String(n).padStart(2, "0"); return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; }
@@ -683,7 +688,7 @@ function renderMyClosed() {
   // Exact rows the bot logged server-side (real leverage/ROE), filtered to >= 13.06.
   const botRows = (botMyClosed || [])
     .filter((t) => (t.closed_ms || 0) >= CLOSED_FROM)
-    .map((t) => ({ opened: t.opened_ms, closed: t.closed_ms, coin: t.bare || t.coin, kind: t.kind,
+    .map((t) => ({ opened: t.opened_ms, closed: t.closed_ms, coin: t.bare || t.coin, rawCoin: t.coin, kind: t.kind,
                    side: t.side, lev: t.lev, mode: t.mode, entry: t.entry, exit: t.exit,
                    margin: t.margin, pnl: t.pnl, roe: t.roe == null ? null : t.roe,
                    peak: t.peak_roe, reason: t.reason, ts: t.closed_ms, src: "Bot-logged (exact)" }));
@@ -1097,7 +1102,7 @@ function renderBotClosed(s) {
   lastBotStatus = s;
   const closed = s.closed || [], st = s.closed_stats || { count: 0, realized: 0, win_rate: 0 };
   const rows = closed.map((t) => ({
-    opened: t.opened_ms, closed: t.closed_ms, coin: t.bare || t.coin, kind: t.kind, side: t.side,
+    opened: t.opened_ms, closed: t.closed_ms, coin: t.bare || t.coin, rawCoin: t.coin, kind: t.kind, side: t.side,
     lev: t.lev, mode: t.mode, entry: t.entry, exit: t.exit, margin: t.margin,
     pnl: t.pnl, roe: t.roe == null ? null : t.roe, peak: t.peak_roe, reason: t.reason, src: "Copy-Bot (paper)",
   }));
