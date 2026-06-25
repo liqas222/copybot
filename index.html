@@ -377,11 +377,11 @@
       </div>
       <div class="ticker"><div class="ticktrack" id="ticktrack"><span class="tkloading">Loading live markets…</span></div></div>
       <div class="kpis" id="kpis">
-        <div class="kpi k-bot"><span class="kpilabel">Copy-Bot · Paper</span><span class="kpival num" id="kBotEq">—</span><span class="kpisub" id="kBotDay">—</span></div>
-        <div class="kpi k-me"><span class="kpilabel">My Account · Total</span><span class="kpival num" id="kMyEq">—</span><span class="kpisub" id="kMyPnl">—</span></div>
-        <div class="kpi"><span class="kpilabel">Bot Win-Rate · 30d</span><span class="kpival num" id="kWin">—</span><span class="kpisub" id="kWinSub">—</span></div>
-        <div class="kpi"><span class="kpilabel">Open Positions</span><span class="kpival num" id="kSlots">—</span><span class="kpisub" id="kSlotsSub">bot slots</span></div>
-        <div class="kpi"><span class="kpilabel">Realized · All-time</span><span class="kpival num" id="kReal">—</span><span class="kpisub" id="kRealSub">bot</span></div>
+        <div class="kpi k-me"><span class="kpilabel">My Account · Total</span><span class="kpival num" id="kMyTotal">—</span><span class="kpisub" id="kMyTotalSub">Perp + Spot</span></div>
+        <div class="kpi"><span class="kpilabel">Unrealized PnL</span><span class="kpival num" id="kMyUnreal">—</span><span class="kpisub" id="kMyUnrealSub">open positions</span></div>
+        <div class="kpi"><span class="kpilabel">Today · 24h</span><span class="kpival num" id="kMyDay">—</span><span class="kpisub" id="kMyDaySub">portfolio</span></div>
+        <div class="kpi"><span class="kpilabel">30 Days</span><span class="kpival num" id="kMyMonth">—</span><span class="kpisub" id="kMyMonthSub">portfolio</span></div>
+        <div class="kpi"><span class="kpilabel">Open Positions</span><span class="kpival num" id="kMyPos">—</span><span class="kpisub" id="kMyPosSub">—</span></div>
       </div>
       <div class="views">
         <section class="view active" id="view-bot">
@@ -1085,6 +1085,7 @@ function renderMine() {
   myCells.acct = document.querySelector(".c-acct");
   myCells.pnl = document.querySelector(".c-mpnl");
   MYPOS.forEach((p, i) => { p.cSize = document.querySelector(`.c-msize[data-i="${i}"]`); p.cPnl2 = document.querySelector(`.c-mpnl2[data-i="${i}"]`); });
+  renderMyKpis();
   tickMine();
 }
 
@@ -1117,14 +1118,13 @@ function tickMine() {
   const liveAcct = myBase.accountValue + (upnl - myBase.baseUpnl);
   if (myCells.acct) setCell(myCells.acct, fmtUsdC(liveAcct));
   if (myCells.pnl) { myCells.pnl.classList.toggle("pos", upnl >= 0); myCells.pnl.classList.toggle("neg", upnl < 0); setCell(myCells.pnl.querySelector(".v"), fmtSignedC(upnl)); }
-  // top KPI band — my live account = Perp account value + Spot USDC (total net worth)
+  // top KPI band — all my account; live values
   const total = liveAcct + (mySpot || 0);
-  const kEq = document.getElementById("kMyEq"); if (kEq) kEq.textContent = fmtUsdC(total);
-  const kP = document.getElementById("kMyPnl");
-  if (kP) {
-    if (MYPOS.length) { kP.textContent = (upnl >= 0 ? "▲ " : "▼ ") + fmtSignedC(upnl) + " unreal."; kP.className = "kpisub " + (upnl >= 0 ? "pos" : "neg"); }
-    else { kP.textContent = "Perp " + fmtUsdC(liveAcct) + " · Spot " + fmtUsdC(mySpot || 0); kP.className = "kpisub"; }
-  }
+  kpiText("kMyTotal", fmtUsdC(total));
+  kpiText("kMyTotalSub", "Perp " + fmtUsdC(liveAcct) + " · Spot " + fmtUsdC(mySpot || 0));
+  kpiMoney("kMyUnreal", upnl);
+  kpiText("kMyUnrealSub", MYPOS.length ? MYPOS.length + (MYPOS.length === 1 ? " open position" : " open positions") : "no open positions");
+  kpiText("kMyPos", String(MYPOS.length));
 }
 
 function checkChanges() {
@@ -1225,20 +1225,22 @@ function renderBot(s) {
   renderBotClosed(s);
   botMyClosed = Array.isArray(s.my_closed) ? s.my_closed : null;
   renderMyClosed();
-  renderKpisBot(s);
 }
-function renderKpisBot(s) {
-  const set = (id, txt, cls) => { const e = document.getElementById(id); if (!e) return; e.textContent = txt; if (cls != null) e.className = "kpisub " + cls; };
-  const eq = s.equity || 0, day = s.day_pnl || 0;
-  const st = s.closed_stats || { count: 0, win_rate: 0 };
-  set("kBotEq", fmtUsdC(eq));
-  set("kBotDay", (day >= 0 ? "▲ " : "▼ ") + fmtSignedC(day) + " today", day >= 0 ? "pos" : "neg");
-  set("kWin", (st.count ? st.win_rate : 0) + "%");
-  set("kWinSub", st.count ? st.count + " closed trades" : "no trades yet");
-  set("kSlots", (s.slots_used || 0) + " / " + (s.max_positions || 5));
-  const real = s.pnl_all != null ? s.pnl_all : (st.realized || 0);
-  set("kReal", fmtSignedC(real), null);
-  const kr = document.getElementById("kReal"); if (kr) kr.classList.toggle("pos", real >= 0), kr.classList.toggle("neg", real < 0);
+// top KPI band — all about MY account. Live values (total, unrealized, positions)
+// come from tickMine; the portfolio-range values (24h, 30d) are set here when data loads.
+function kpiText(id, txt) { const e = document.getElementById(id); if (e) e.textContent = txt; }
+function kpiMoney(id, val) {
+  const e = document.getElementById(id); if (!e) return;
+  if (val == null) { e.textContent = "—"; e.classList.remove("pos", "neg"); return; }
+  e.textContent = fmtSignedC(val); e.classList.toggle("pos", val >= 0); e.classList.toggle("neg", val < 0);
+}
+function renderMyKpis() {
+  kpiMoney("kMyDay", myPerf ? myPerf.day : null);
+  kpiMoney("kMyMonth", myPerf ? myPerf.month : null);
+  const myLevs = MYPOS.map((p) => p.levNum).filter((v) => v > 0);
+  const avgLev = myLevs.length ? (myLevs.reduce((a, b) => a + b, 0) / myLevs.length) : 0;
+  kpiText("kMyPos", String(MYPOS.length));
+  kpiText("kMyPosSub", myLevs.length ? "avg " + avgLev.toFixed(1) + "× leverage" : "no open positions");
 }
 function renderBotPortfolio(s) {
   const port = document.getElementById("botPortfolio");
