@@ -100,6 +100,16 @@
   .mwprice { font-family: var(--mono); font-size: 15px; margin: 4px 0 7px; font-variant-numeric: tabular-nums; letter-spacing: -.3px; }
   .mwcard[role="button"] { cursor: pointer; transition: border-color .15s, transform .1s; }
   .mwcard[role="button"]:hover { border-color: var(--line2); transform: translateY(-1px); box-shadow: 0 10px 26px -16px rgba(168,85,247,.5); }
+  .mmhd { margin: 18px 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 1.4px; color: var(--muted); font-family: var(--mono); }
+  .mmhead { display: grid; grid-template-columns: 1.4fr 1fr .8fr .8fr; gap: 10px; padding: 0 12px 7px; font-size: 10.5px; text-transform: uppercase;
+    letter-spacing: .8px; color: var(--dim); border-bottom: 1px solid var(--line); }
+  .mmhead span:not(:first-child), .mmcard span:not(.mmcoin) { text-align: right; justify-content: flex-end; }
+  .mmlist { display: flex; flex-direction: column; }
+  .mmcard { display: grid; grid-template-columns: 1.4fr 1fr .8fr .8fr; gap: 10px; align-items: center; padding: 9px 12px; border-radius: 9px;
+    border: 1px solid transparent; cursor: pointer; transition: background .12s, border-color .12s; }
+  .mmcard:hover { background: rgba(255,255,255,.03); border-color: var(--line); }
+  .mmcoin { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; font-size: 13px; letter-spacing: .3px; }
+  .mmprice { font-size: 13px; } .mmchg { font-size: 12.5px; } .mmvol { font-size: 12px; color: var(--muted); }
   .tkitem { cursor: pointer; }
   .modal { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
   .modalbg { position: absolute; inset: 0; background: rgba(4,6,10,.74); backdrop-filter: blur(3px); }
@@ -338,9 +348,9 @@
     <aside class="nav">
       <div class="brand"><span class="logo">⬡</span><div class="bwords"><h1>Command Center</h1><span class="bsub">Copy-Trade Intelligence</span></div></div>
       <nav class="navlist" id="navlist">
-        <button class="navitem active" data-view="bot" data-title="Copy-Bot" data-sub="Paper account · live mirror"><span class="ni-ic">🤖</span><span class="ni-tx">Copy-Bot</span></button>
+        <button class="navitem active" data-view="watch" data-title="Watchlist" data-sub="Tracked wallets &amp; their positions"><span class="ni-ic">🔭</span><span class="ni-tx">Watchlist</span></button>
         <button class="navitem" data-view="me" data-title="My Account" data-sub="Your live Hyperliquid wallet"><span class="ni-ic">👤</span><span class="ni-tx">My Account</span></button>
-        <button class="navitem" data-view="watch" data-title="Watchlist" data-sub="Tracked wallets &amp; their positions"><span class="ni-ic">🔭</span><span class="ni-tx">Watchlist</span></button>
+        <button class="navitem" data-view="bot" data-title="Copy-Bot" data-sub="Paper account · live mirror"><span class="ni-ic">🤖</span><span class="ni-tx">Copy-Bot</span></button>
         <button class="navitem" data-view="markets" data-title="Markets" data-sub="Live Hyperliquid markets"><span class="ni-ic">📈</span><span class="ni-tx">Markets</span></button>
         <button class="navitem" data-view="settings" data-title="Settings" data-sub="Strategy &amp; notifications"><span class="ni-ic">⚙️</span><span class="ni-tx">Settings</span></button>
       </nav>
@@ -1518,7 +1528,8 @@ function sparkSvg(vals, up) {
 }
 function renderMarketWatch() {
   const el = document.getElementById("marketWatch"); if (!el) return;
-  const cards = SPARK_COINS.map((c) => {
+  // featured coins with sparklines
+  const feat = SPARK_COINS.map((c) => {
     const x = mkt[c];
     if (!x) return `<div class="mwcard"><div class="mwtop"><span class="mwcoin">${c}</span></div><div class="state small">—</div></div>`;
     const up = x.chg >= 0;
@@ -1528,7 +1539,28 @@ function renderMarketWatch() {
       ${sparkSvg(spark[c], up)}
     </div>`;
   }).join("");
-  el.innerHTML = `<header class="phead"><span class="wlabel">Market Watch</span><span class="meta">tap for chart</span></header><div class="pbody"><div class="mwgrid">${cards}</div></div>`;
+  // all liquid markets, by 24h volume, as compact cards
+  const featSet = new Set(SPARK_COINS);
+  const all = Object.keys(mkt)
+    .filter((c) => mkt[c] && mkt[c].price > 0 && !featSet.has(c))
+    .sort((a, b) => (mkt[b].vol || 0) - (mkt[a].vol || 0))
+    .slice(0, 40);
+  const rows = all.map((c) => {
+    const x = mkt[c], up = x.chg >= 0;
+    return `<div class="mmcard" role="button" tabindex="0" onclick="openChart('${c}')" onkeypress="if(event.key==='Enter')openChart('${c}')">
+      <span class="mmcoin">${liqDot(c)}${c}</span>
+      <span class="mmprice num">$${fmtP(x.price)}</span>
+      <span class="mmchg num ${up ? "pos" : "neg"}">${fmtChg(x.chg)}</span>
+      <span class="mmvol num">${x.vol >= 1e6 ? "$" + (x.vol / 1e6).toFixed(0) + "M" : "—"}</span>
+    </div>`;
+  }).join("");
+  const allBlock = all.length
+    ? `<div class="mmhd">All markets · by 24h volume</div>
+       <div class="mmhead"><span>Coin</span><span>Price</span><span>24h</span><span>Vol</span></div>
+       <div class="mmlist">${rows}</div>`
+    : `<div class="state small">Loading markets…</div>`;
+  el.innerHTML = `<header class="phead"><span class="wlabel">Market Watch</span><span class="meta">tap any for chart</span></header>
+    <div class="pbody"><div class="mwgrid">${feat}</div>${allBlock}</div>`;
 }
 function renderMovers() {
   return; // removed from UI
@@ -1636,7 +1668,7 @@ function showView(name) {
 }
 function initNav() {
   document.querySelectorAll(".navitem").forEach((n) => n.addEventListener("click", () => showView(n.dataset.view)));
-  let start = "bot";
+  let start = "watch";
   try { const v = localStorage.getItem("ccView"); if (v && document.getElementById("view-" + v)) start = v; } catch (e) {}
   showView(start);
 }
