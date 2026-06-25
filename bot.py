@@ -740,12 +740,12 @@ SMART_FRAC    = 0.20          # 20% of equity as margin per trade
 SMART_LEV     = 6            # fixed leverage
 SMART_TP      = 0.12          # take-profit ROE
 SMART_MAX     = 5            # max concurrent positions
-SMART_TOPN    = 100          # size of the tracked list
-SMART_POOL    = 200          # leaderboard candidates evaluated for win-rate
-SMART_MINWR   = 45.0         # minimum win-rate % to qualify
-SMART_MINTR   = 10           # minimum closed trades to trust the win-rate
-SMART_REBUILD_H = 3          # rebuild the top list every N hours (keeps it "fresh")
-SMART_CYCLE   = 60.0         # target seconds for one full pass over the list
+SMART_TOPN    = 100          # size of the tracked list (we aim to fill all 100)
+SMART_POOL    = 320          # leaderboard candidates evaluated for win-rate (bigger -> fills 100)
+SMART_MINWR   = 42.0         # minimum win-rate % to qualify
+SMART_MINTR   = 8            # minimum closed trades to trust the win-rate
+SMART_REBUILD_MIN = 60       # rebuild the top list every N minutes (list refresh, NOT trade-scan)
+SMART_CYCLE   = 60.0         # target seconds for one full pass over the list (continuous trade-scan)
 LB_URL        = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard"
 
 SMART = {"cash": SMART_START, "pos": {}, "closed": [], "hist": []}   # pos keyed by bare coin
@@ -821,7 +821,7 @@ def smart_build_top():
                         "wr": wr, "score": round(roi * (wr / 100.0), 4)})
         if i % 8 == 0:
             smart_set_build(True, i + 1, total)
-        time.sleep(0.12)
+        time.sleep(0.1)
     out.sort(key=lambda x: -x["score"])
     global SMART_TOP
     SMART_TOP = out[:SMART_TOPN]
@@ -910,8 +910,8 @@ def smart_publish(mids):
         "lev": SMART_LEV, "tp_pct": round(SMART_TP * 100), "frac_pct": round(SMART_FRAC * 100),
         "history": SMART["hist"][-1500:], "pnl_all": round(eq - SMART_START, 2),
         "building": SMART_BUILD["on"], "build_done": SMART_BUILD["done"], "build_total": SMART_BUILD["total"],
-        "next_build_ms": int((SMART_BUILD.get("last", 0) + SMART_REBUILD_H * 3600) * 1000) if SMART_BUILD.get("last") else 0,
-        "interval_min": SMART_REBUILD_H * 60}
+        "next_build_ms": int((SMART_BUILD.get("last", 0) + SMART_REBUILD_MIN * 60) * 1000) if SMART_BUILD.get("last") else 0,
+        "interval_min": SMART_REBUILD_MIN}
 
 def smart_save():
     try:
@@ -945,7 +945,7 @@ def run_smart():
         try:
             if not SMART_TOP:
                 smart_build_top(); SMART_BUILD["last"] = time.time(); time.sleep(5); continue
-            if time.time() - SMART_BUILD.get("last", 0) > SMART_REBUILD_H * 3600:
+            if time.time() - SMART_BUILD.get("last", 0) > SMART_REBUILD_MIN * 60:
                 smart_build_top(); SMART_BUILD["last"] = time.time()
             try:
                 mids = hl_post(SOURCE_URL, {"type": "allMids"})
