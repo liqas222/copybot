@@ -855,13 +855,27 @@ function btCycleExit(cy, candles, tp, lev) {     // when would my copy have exit
   }
   return { t: cy.closeT, px: cy.exitPx, reason: cy.stillOpen ? "open" : "whale" };
 }
+async function btFetchFills(addr, from, now) {   // paginate userFillsByTime to get the FULL window (>2000 fills)
+  let all = [], cursor = from, guard = 0;
+  while (guard++ < 30) {
+    const batch = await post({ type: "userFillsByTime", user: addr, startTime: cursor, endTime: now });
+    const arr = Array.isArray(batch) ? batch : [];
+    if (!arr.length) break;
+    all = all.concat(arr);
+    if (arr.length < 2000) break;
+    const lastT = Math.max.apply(null, arr.map((f) => f.time));
+    if (!(lastT > cursor)) break;                // no forward progress -> stop
+    cursor = lastT + 1;
+  }
+  const seen = new Set(), out = [];
+  for (const f of all) { const k = f.time + "|" + (f.hash || f.oid || f.tid || ""); if (seen.has(k)) continue; seen.add(k); out.push(f); }
+  return out;
+}
 async function backtest(addr, tp, start) {
   const lev = (lastBotStatus && lastBotStatus.fixed_lev) || 6, FRAC = 0.20, MAXPOS = 5;
   const now = Date.now(), from = now - 30 * 86400000;
-  const all = await post({ type: "userFills", user: addr });
-  const fills = (Array.isArray(all) ? all : []).filter((f) => f.time >= from);
+  const fills = await btFetchFills(addr, from, now);
   let cycles = btBuildCycles(fills, from, now).sort((a, b) => a.openT - b.openT);
-  if (cycles.length > 300) cycles = cycles.slice(-300);
   const cyclesN = cycles.length, fillsN = fills.length;
   const iv = btInterval(now - from), byCoin = {};
   const uniq = Array.from(new Set(cycles.map((c) => c.coin)));
