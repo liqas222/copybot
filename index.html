@@ -814,11 +814,25 @@ function btInterval(span) {
   for (const it of ivs) { if (span / it[1] <= 4500) return it; }
   return ivs[ivs.length - 1];
 }
+async function postRetry(body, tries = 5) {       // deterministic fetch: retry on rate-limit/error w/ backoff
+  let lastErr = null;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await post(body);
+      if (r && r.error) throw new Error(String(r.error));  // 200 w/ {error:"rate limited"}
+      return r;
+    } catch (e) {
+      lastErr = e;
+      await new Promise((res) => setTimeout(res, 400 * Math.pow(2, i))); // 400,800,1600,3200ms
+    }
+  }
+  throw lastErr || new Error("postRetry failed");
+}
 async function btCandles(coin, rawCoin, from, to, ivName) {
   const coins = [coin, rawCoin].filter((c, i, a) => c && a.indexOf(c) === i);
   for (const cn of coins) {
     try {
-      const c = await post({ type: "candleSnapshot", req: { coin: cn, interval: ivName, startTime: from, endTime: to } });
+      const c = await postRetry({ type: "candleSnapshot", req: { coin: cn, interval: ivName, startTime: from, endTime: to } });
       const arr = Array.isArray(c) ? c : [];
       if (arr.length) { arr.sort((a, b) => (+a.t) - (+b.t)); return arr; }
     } catch (e) { /* try next */ }
@@ -885,22 +899,16 @@ function btCycleExit(cy, candles, tp, lev, now) { // OUR exit: TP, liq, or follo
 }
 async function btFetchFills(addr, from, now) {   // paginate userFillsByTime to get the FULL window (>2000 fills)
   let all = [], cursor = from, guard = 0;
-  while (guard++ < 40) {
-    let batch;
-    try { batch = await post({ type: "userFillsByTime", user: addr, startTime: cursor, endTime: now }); }
-    catch (e) { break; }                         // network/HTTP error on a page: use what we have
-    if (!batch || batch.error || !Array.isArray(batch)) break;
-    if (!batch.length) break;
+  while (guard++ < 60) {
+    // postRetry throws only after exhausting backoff → we get the FULL page set every run, not a random partial
+    const batch = await postRetry({ type: "userFillsByTime", user: addr, startTime: cursor, endTime: now });
+    if (!Array.isArray(batch) || !batch.length) break;
     all = all.concat(batch);
     if (batch.length < 2000) break;
     const lastT = Math.max.apply(null, batch.map((f) => f.time));
     if (!(lastT > cursor)) break;                // no forward progress -> stop
     cursor = lastT + 1;
-    await new Promise((r) => setTimeout(r, 120)); // brief pause to avoid rate-limit
-  }
-  // fall back to legacy userFills if pagination returned nothing at all
-  if (!all.length) {
-    try { const fb = await post({ type: "userFills", user: addr }); if (Array.isArray(fb)) all = fb; } catch (e) { /**/ }
+    await new Promise((r) => setTimeout(r, 150)); // pace to avoid hitting the rate-limit in the first place
   }
   const seen = new Set(), out = [];
   for (const f of all) { const k = f.time + "|" + (f.hash || f.oid || f.tid || ""); if (seen.has(k)) continue; seen.add(k); out.push(f); }
