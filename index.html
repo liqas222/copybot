@@ -304,17 +304,6 @@
       <aside class="side col-left">
         <section class="panel" id="myPortfolio"><header class="phead"><span class="wlabel">My Portfolio</span></header><div class="state small">Loading…</div></section>
         <section class="panel" id="myPerf"><header class="phead"><span class="wlabel">My Performance</span></header><div class="state small">Loading…</div></section>
-        <section class="panel" id="backtest">
-          <header class="phead"><span class="wlabel">Copy Backtest</span><span class="meta">30d</span></header>
-          <div class="pbody">
-            <input id="btAddr" class="tgin" type="text" placeholder="0x… Wallet (leer = kopierte Wallet)" autocomplete="off" spellcheck="false" style="width:100%;margin-bottom:10px">
-            <div class="setrow"><label>Take-Profit</label><span class="ingrp"><input id="btTp" class="numin" type="number" min="1" max="1000" step="1" value="12"><span class="unit">% ROE</span></span></div>
-            <div class="setrow"><label>Hebel</label><span class="ingrp"><input id="btLev" class="numin" type="number" min="1" max="100" step="1" value="6"><span class="unit">×</span></span></div>
-            <div class="setrow"><label>Start balance</label><span class="ingrp"><input id="btStart" class="numin" type="number" min="1" step="100" value="1000"><span class="unit">$</span></span></div>
-            <button class="btn" onclick="runBacktest()">▶ Run backtest</button>
-            <div id="btResult"><div class="setnote">Simuliert die letzten 30 Tage des kopierten Whales mit deiner Strategie: 6× Hebel, 20% Margin/Trade, max 5 Positionen.</div></div>
-          </div>
-        </section>
         <section class="panel" id="marketWatch"><header class="phead"><span class="wlabel">Market Watch</span><span class="meta">24h</span></header><div class="state small">Loading…</div></section>
         <section class="panel" id="myClosed"><header class="phead"><span class="wlabel">Closed Trades</span></header><div class="state small">Loading…</div></section>
       </aside>
@@ -343,6 +332,19 @@
         <section class="panel" id="botTg"><header class="phead"><span class="wlabel">Notifications</span></header><div class="state small">…</div></section>
       </aside>
     </div>
+    <section class="panel" id="backtest" style="margin:0 0 16px 0">
+      <header class="phead"><span class="wlabel">Copy Backtest</span><span class="meta">30d</span></header>
+      <div class="pbody" style="display:grid;grid-template-columns:260px 1fr;gap:24px;align-items:start">
+        <div class="btcontrols">
+          <input id="btAddr" class="tgin" type="text" placeholder="0x… Wallet (leer = kopierte Wallet)" autocomplete="off" spellcheck="false" style="width:100%;margin-bottom:10px">
+          <div class="setrow"><label>Take-Profit</label><span class="ingrp"><input id="btTp" class="numin" type="number" min="1" max="1000" step="1" value="12"><span class="unit">% ROE</span></span></div>
+          <div class="setrow"><label>Hebel</label><span class="ingrp"><input id="btLev" class="numin" type="number" min="1" max="100" step="1" value="6"><span class="unit">×</span></span></div>
+          <div class="setrow"><label>Start balance</label><span class="ingrp"><input id="btStart" class="numin" type="number" min="1" step="100" value="1000"><span class="unit">$</span></span></div>
+          <button class="btn" style="margin-top:8px;width:100%" onclick="runBacktest()">▶ Run backtest</button>
+        </div>
+        <div id="btResult"><div class="setnote">Simuliert die letzten 30 Tage des kopierten Whales mit deiner Strategie: 6× Hebel, 20% Margin/Trade, max 5 Positionen.</div></div>
+      </div>
+    </section>
     <div class="foot">Live prices from Hyperliquid · updates while this page is open · not financial advice</div>
   </div>
   <div id="chartModal" class="modal" style="display:none" aria-hidden="true">
@@ -957,15 +959,17 @@ function renderBacktest(r, addr) {
   const pos = r.pnl >= 0;
   const who = addr ? `<a class="waddr" href="https://hypurrscan.io/address/${addr}" target="_blank" rel="noopener">${addr.slice(0, 6)}…${addr.slice(-4)}</a>` : "";
   out.innerHTML = `
-    <div class="hero"><span class="herolabel">Result · 30 days ${who}</span><span class="heroval num ${pos ? "pos" : "neg"}">${fmtSignedC(r.pnl)}</span></div>
-    <div class="statrow"><span>Return</span><span class="num ${pos ? "pos" : "neg"}">${(r.pct >= 0 ? "+" : "") + r.pct.toFixed(1)}%</span></div>
-    <div class="statrow"><span>End balance</span><span class="num">${fmtUsdC(r.equity)}</span></div>
-    <div class="statrow"><span>Trades</span><span class="num">${r.count}</span></div>
-    <div class="statrow"><span>Win rate</span><span class="num">${r.count ? Math.round(100 * r.wins / r.count) : 0}% · ${r.wins}W / ${r.losses}L</span></div>
-    <div class="statrow"><span>Max drawdown</span><span class="num neg">-${(r.maxDD * 100).toFixed(1)}%</span></div>
-    <div class="statrow" title="TP-Treffer · Liquidationen · Whale-Exit (kein TP/Liq) · Noch offen (Whale hält noch)"><span>TP · Liq · Whale-Exit · Offen</span><span class="num">${r.tpHits} · ${r.liqs} · ${r.whaleExits} · ${r.stillOpen}</span></div>
-    <div class="statrow" title="rohe Fills aus der API · daraus erkannte Trades (30d)"><span>Fills · erkannte Trades</span><span class="num">${r.fillsN} · ${r.cyclesN}</span></div>
-    <div class="setnote">Annahmen: Entry = Whale-Entry, ${r.lev}× Hebel, 20% Margin/Trade, max 5 gleichzeitig. Exit = eigener TP/Liq (unabhängig vom Whale-Exit). Gebühren, Funding & Kill-Switch nicht modelliert → Näherung.</div>`;
+    <div class="hero" style="margin-bottom:16px"><span class="herolabel">Result · 30 days ${who}</span><span class="heroval num ${pos ? "pos" : "neg"}" style="font-size:2.2rem">${fmtSignedC(r.pnl)}</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px 24px;margin-bottom:12px">
+      <div class="statrow"><span>Return</span><span class="num ${pos ? "pos" : "neg"}">${(r.pct >= 0 ? "+" : "") + r.pct.toFixed(1)}%</span></div>
+      <div class="statrow"><span>End balance</span><span class="num">${fmtUsdC(r.equity)}</span></div>
+      <div class="statrow"><span>Trades simuliert</span><span class="num">${r.count}</span></div>
+      <div class="statrow"><span>Win rate</span><span class="num">${r.count ? Math.round(100 * r.wins / r.count) : 0}% · ${r.wins}W / ${r.losses}L</span></div>
+      <div class="statrow"><span>Max drawdown</span><span class="num neg">-${(r.maxDD * 100).toFixed(1)}%</span></div>
+      <div class="statrow" title="TP-Treffer · Liquidationen · Whale-Exit (kein TP/Liq) · Noch offen"><span>TP · Liq · Whale · Offen</span><span class="num">${r.tpHits} · ${r.liqs} · ${r.whaleExits} · ${r.stillOpen}</span></div>
+      <div class="statrow" title="rohe Fills · erkannte Whale-Trades (30d)"><span>Fills · Trades erkannt</span><span class="num">${r.fillsN} · ${r.cyclesN}</span></div>
+    </div>
+    <div class="setnote">Entry = Whale-Entry · ${r.lev}× Hebel · 20% Margin/Trade · max 5 gleichzeitig · Exit = eigener TP/Liq unabhängig vom Whale · Gebühren/Funding nicht modelliert</div>`;
 }
 async function runBacktest() {
   if (backtestRunning) return;
