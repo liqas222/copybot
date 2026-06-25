@@ -2041,74 +2041,128 @@ function chillResize() {
   CHILL.x.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 const CHILL_SCENES = [
-  { name: "warp drive", init(W, H) { this.s = Array.from({ length: 320 }, () => ({ x: _rnd(-W, W), y: _rnd(-H, H), z: _rnd(1, W) })); },
+  { name: "warp drive", init(W, H) { this.s = Array.from({ length: 300 }, () => ({ x: _rnd(-W, W), y: _rnd(-H, H), z: _rnd(1, W) })); },
     draw(x, dt, W, H) {
-      x.fillStyle = "rgba(4,4,10,.35)"; x.fillRect(0, 0, W, H);
+      x.fillStyle = "rgba(4,4,10,.20)"; x.fillRect(0, 0, W, H);
       const cx = W / 2, cy = H / 2;
       for (const p of this.s) {
-        const pz = p.z; p.z -= dt * 420; if (p.z <= 1) { p.x = _rnd(-W, W); p.y = _rnd(-H, H); p.z = W; }
+        const pz = p.z; p.z -= dt * 150; if (p.z <= 1) { p.x = _rnd(-W, W); p.y = _rnd(-H, H); p.z = W; }
         const k = 220 / p.z, kx = 220 / pz;
         const sx = cx + p.x * k, sy = cy + p.y * k, px = cx + p.x * kx, py = cy + p.y * kx;
         const a = Math.min(1, (W - p.z) / W);
-        x.strokeStyle = `rgba(${180 + a * 60 | 0},${120 + a * 80 | 0},255,${a})`; x.lineWidth = a * 2.2;
+        x.strokeStyle = `rgba(${180 + a * 60 | 0},${120 + a * 80 | 0},255,${a})`; x.lineWidth = a * 2;
         x.beginPath(); x.moveTo(px, py); x.lineTo(sx, sy); x.stroke();
       }
     } },
-  { name: "coin matrix", init(W, H) { this.col = Math.floor(W / 20); this.y = Array.from({ length: this.col }, () => _rnd(-H, 0)); this.ch = "₿Ξ$◆◇▲▼01"; },
+  { name: "aurora", init() { this.p = _rnd(0, 99); }, draw(x, dt, W, H) {
+      x.fillStyle = "rgba(4,4,10,.12)"; x.fillRect(0, 0, W, H);
+      this.p += dt * 0.25;
+      for (let b = 0; b < 5; b++) {
+        const hue = 220 + b * 28 + Math.sin(this.p + b) * 20;
+        x.beginPath();
+        for (let i = 0; i <= W; i += 14) {
+          const y = H * 0.5 + Math.sin(i * 0.004 + this.p + b * 1.3) * 120 + Math.sin(i * 0.011 + this.p * 1.5) * 50 + (b - 2) * 46;
+          i ? x.lineTo(i, y) : x.moveTo(i, y);
+        }
+        x.lineWidth = 60; x.lineCap = "round"; x.strokeStyle = `hsla(${hue},80%,62%,.13)`; x.stroke();
+      }
+    } },
+  { name: "coin rain", init(W) { this.col = Math.floor(W / 22); this.y = Array.from({ length: this.col }, () => _rnd(-600, 0)); this.sp = Array.from({ length: this.col }, () => _rnd(45, 95)); this.ch = "₿Ξ$◆◇▲▼01"; },
     draw(x, dt, W, H) {
-      x.fillStyle = "rgba(4,4,10,.18)"; x.fillRect(0, 0, W, H);
+      x.fillStyle = "rgba(4,4,10,.10)"; x.fillRect(0, 0, W, H);
       x.font = "16px JetBrains Mono, monospace";
       for (let i = 0; i < this.col; i++) {
-        const ch = this.ch[Math.floor(Math.random() * this.ch.length)];
-        const xx = i * 20, yy = this.y[i];
-        x.fillStyle = "rgba(236,72,153,.95)"; x.fillText(ch, xx, yy);
-        x.fillStyle = "rgba(120,90,255,.35)"; x.fillText(ch, xx, yy - 18);
-        this.y[i] += dt * _rnd(180, 360);
-        if (this.y[i] > H + 20) this.y[i] = _rnd(-200, 0);
+        const ch = this.ch[Math.floor(Math.random() * this.ch.length)], xx = i * 22, yy = this.y[i];
+        x.fillStyle = "rgba(236,72,153,.9)"; x.fillText(ch, xx, yy);
+        x.fillStyle = "rgba(120,90,255,.3)"; x.fillText(ch, xx, yy - 20);
+        this.y[i] += dt * this.sp[i];
+        if (this.y[i] > H + 20) { this.y[i] = _rnd(-300, 0); }
       }
     } },
   { name: "synthwave", init() { this.off = 0; }, draw(x, dt, W, H) {
       x.fillStyle = "#0a0420"; x.fillRect(0, 0, W, H);
-      const hz = H * 0.42;
-      const sun = x.createLinearGradient(0, hz - 160, 0, hz); sun.addColorStop(0, "#f59e0b"); sun.addColorStop(1, "#ec4899");
-      x.fillStyle = sun; x.beginPath(); x.arc(W / 2, hz, 110, Math.PI, 0); x.fill();
-      x.fillStyle = "#0a0420"; for (let i = 0; i < 6; i++) x.fillRect(W / 2 - 120, hz - 70 + i * 16, 240, 7);
-      this.off = (this.off + dt * 120) % 60;
-      x.strokeStyle = "rgba(168,85,247,.6)"; x.lineWidth = 1.5;
-      for (let i = 0; i < 22; i++) { const yy = hz + i * 26 - this.off; const sc = (yy - hz) / (H - hz);
-        x.globalAlpha = Math.min(1, sc * 2.2); x.beginPath(); x.moveTo(0, yy); x.lineTo(W, yy); x.stroke(); }
-      for (let i = -10; i <= 10; i++) { x.beginPath(); x.moveTo(W / 2 + i * 30, hz); x.lineTo(W / 2 + i * 220, H); x.stroke(); }
+      const hz = Math.round(H * 0.46);
+      const sunR = Math.min(150, H * 0.2), sunY = hz - 4;
+      // glow
+      const halo = x.createRadialGradient(W / 2, sunY, 0, W / 2, sunY, sunR * 1.7);
+      halo.addColorStop(0, "rgba(245,158,11,.30)"); halo.addColorStop(1, "rgba(245,158,11,0)");
+      x.fillStyle = halo; x.fillRect(W / 2 - sunR * 1.7, sunY - sunR * 1.7, sunR * 3.4, sunR * 3.4);
+      // sun dome clipped above the horizon
+      x.save(); x.beginPath(); x.rect(0, 0, W, hz); x.clip();
+      const g = x.createLinearGradient(0, sunY - sunR, 0, sunY + sunR);
+      g.addColorStop(0, "#fcd34d"); g.addColorStop(.5, "#fb7185"); g.addColorStop(1, "#ec4899");
+      x.fillStyle = g; x.beginPath(); x.arc(W / 2, sunY, sunR, 0, Math.PI * 2); x.fill();
+      // retro stripes (gaps widen toward the bottom)
+      x.fillStyle = "#0a0420";
+      for (let i = 0; i < 8; i++) { const yy = sunY - sunR * 0.55 + i * (sunR * 0.17); x.fillRect(W / 2 - sunR, yy, sunR * 2, 2.5 + i * 1.3); }
+      x.restore();
+      // neon grid
+      this.off = (this.off + dt * 42) % 64;
+      x.strokeStyle = "rgba(168,85,247,.55)"; x.lineWidth = 1.4;
+      for (let i = 0; i < 24; i++) { const yy = hz + i * 28 - this.off; const sc = (yy - hz) / (H - hz);
+        x.globalAlpha = Math.max(0, Math.min(1, sc * 2.2)); x.beginPath(); x.moveTo(0, yy); x.lineTo(W, yy); x.stroke(); }
+      for (let i = -12; i <= 12; i++) { x.beginPath(); x.moveTo(W / 2 + i * 28, hz); x.lineTo(W / 2 + i * 240, H); x.stroke(); }
       x.globalAlpha = 1;
     } },
-  { name: "glow orbs", init(W, H) { this.o = Array.from({ length: 14 }, () => ({ x: _rnd(0, W), y: _rnd(0, H), vx: _rnd(-60, 60), vy: _rnd(-60, 60), r: _rnd(40, 120), h: _rnd(240, 320) })); },
+  { name: "lava lamp", init(W, H) { this.b = Array.from({ length: 11 }, () => ({ x: _rnd(0, W), y: _rnd(0, H), vy: _rnd(-22, -8), r: _rnd(50, 130), h: _rnd(250, 320) })); },
     draw(x, dt, W, H) {
-      x.fillStyle = "rgba(4,4,10,.25)"; x.fillRect(0, 0, W, H);
+      x.fillStyle = "rgba(8,4,16,.22)"; x.fillRect(0, 0, W, H);
+      for (const o of this.b) {
+        o.y += o.vy * dt; o.x += Math.sin(o.y * 0.01) * 10 * dt;
+        if (o.y < -o.r) { o.y = H + o.r; o.x = _rnd(0, W); }
+        const g = x.createRadialGradient(o.x, o.y, 0, o.x, o.y, o.r);
+        g.addColorStop(0, `hsla(${o.h},85%,62%,.5)`); g.addColorStop(1, `hsla(${o.h},85%,62%,0)`);
+        x.fillStyle = g; x.beginPath(); x.arc(o.x, o.y, o.r, 0, 7); x.fill();
+      }
+    } },
+  { name: "glow orbs", init(W, H) { this.o = Array.from({ length: 13 }, () => ({ x: _rnd(0, W), y: _rnd(0, H), vx: _rnd(-22, 22), vy: _rnd(-22, 22), r: _rnd(46, 120), h: _rnd(240, 320) })); },
+    draw(x, dt, W, H) {
+      x.fillStyle = "rgba(4,4,10,.16)"; x.fillRect(0, 0, W, H);
       for (const o of this.o) {
         o.x += o.vx * dt; o.y += o.vy * dt;
         if (o.x < 0 || o.x > W) o.vx *= -1; if (o.y < 0 || o.y > H) o.vy *= -1;
         const g = x.createRadialGradient(o.x, o.y, 0, o.x, o.y, o.r);
-        g.addColorStop(0, `hsla(${o.h},80%,65%,.6)`); g.addColorStop(1, `hsla(${o.h},80%,65%,0)`);
+        g.addColorStop(0, `hsla(${o.h},80%,65%,.5)`); g.addColorStop(1, `hsla(${o.h},80%,65%,0)`);
         x.fillStyle = g; x.beginPath(); x.arc(o.x, o.y, o.r, 0, 7); x.fill();
       }
     } },
-  { name: "bouncing hex", init(W, H) { this.p = { x: W / 2, y: H / 2, vx: _rnd(160, 260), vy: _rnd(140, 220), h: 280 }; },
+  { name: "galaxy", init() { this.a = 0; this.s = Array.from({ length: 420 }, (_, i) => ({ r: _rnd(8, 1), ang: _rnd(0, 7), arm: i % 3, rad: Math.pow(Math.random(), 0.6) })); },
     draw(x, dt, W, H) {
-      x.fillStyle = "rgba(4,4,10,.3)"; x.fillRect(0, 0, W, H);
+      x.fillStyle = "rgba(4,4,10,.16)"; x.fillRect(0, 0, W, H);
+      this.a += dt * 0.12; const cx = W / 2, cy = H / 2, maxR = Math.min(W, H) * 0.46;
+      for (const s of this.s) {
+        const ang = s.ang + this.a * (1.2 - s.rad) + s.arm * 2.094 + s.rad * 5;
+        const r = s.rad * maxR; const px = cx + Math.cos(ang) * r, py = cy + Math.sin(ang) * r * 0.62;
+        const a = 1 - s.rad; x.fillStyle = `hsla(${260 + s.arm * 30},85%,${60 + a * 20}%,${0.35 + a * 0.5})`;
+        x.beginPath(); x.arc(px, py, 1.4 + a * 1.6, 0, 7); x.fill();
+      }
+    } },
+  { name: "rain", init() { this.d = Array.from({ length: 220 }, () => ({ x: Math.random(), y: Math.random(), l: _rnd(10, 26), s: _rnd(0.18, 0.4) })); },
+    draw(x, dt, W, H) {
+      x.fillStyle = "rgba(4,6,14,.22)"; x.fillRect(0, 0, W, H);
+      x.strokeStyle = "rgba(140,160,255,.4)"; x.lineWidth = 1.2;
+      for (const d of this.d) { const px = d.x * W, py = d.y * H;
+        x.beginPath(); x.moveTo(px, py); x.lineTo(px - 4, py + d.l); x.stroke();
+        d.y += d.s * dt; d.x += 0.04 * dt; if (d.y > 1) { d.y = -0.05; d.x = Math.random(); } }
+    } },
+  { name: "bouncing hex", init(W, H) { this.p = { x: W / 2, y: H / 2, vx: _rnd(70, 110), vy: _rnd(60, 100), h: 280 }; },
+    draw(x, dt, W, H) {
+      x.fillStyle = "rgba(4,4,10,.22)"; x.fillRect(0, 0, W, H);
       const p = this.p, s = 60; p.x += p.vx * dt; p.y += p.vy * dt;
       if (p.x < s || p.x > W - s) { p.vx *= -1; p.h = (p.h + 47) % 360; }
       if (p.y < s || p.y > H - s) { p.vy *= -1; p.h = (p.h + 47) % 360; }
-      x.fillStyle = `hsl(${p.h},85%,62%)`; x.shadowColor = x.fillStyle; x.shadowBlur = 30;
-      x.font = "bold 90px Chakra Petch, sans-serif"; x.textAlign = "center"; x.textBaseline = "middle";
+      x.fillStyle = `hsl(${p.h},85%,62%)`; x.shadowColor = x.fillStyle; x.shadowBlur = 34;
+      x.font = "bold 92px Chakra Petch, sans-serif"; x.textAlign = "center"; x.textBaseline = "middle";
       x.fillText("⬡", p.x, p.y); x.shadowBlur = 0; x.textAlign = "start"; x.textBaseline = "alphabetic";
     } },
   { name: "fireworks", init() { this.p = []; this.timer = 0; },
     draw(x, dt, W, H) {
-      x.fillStyle = "rgba(4,4,10,.2)"; x.fillRect(0, 0, W, H);
+      x.fillStyle = "rgba(4,4,10,.16)"; x.fillRect(0, 0, W, H);
       this.timer -= dt;
-      if (this.timer <= 0) { this.timer = _rnd(0.4, 1.0); const bx = _rnd(W * .2, W * .8), by = _rnd(H * .15, H * .6), h = _rnd(0, 360);
-        for (let i = 0; i < 70; i++) { const a = Math.random() * 7, sp = _rnd(40, 240); this.p.push({ x: bx, y: by, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1, h }); } }
-      for (const q of this.p) { q.vy += 120 * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.life -= dt * 0.7;
-        x.fillStyle = `hsla(${q.h},90%,65%,${Math.max(0, q.life)})`; x.fillRect(q.x, q.y, 3, 3); }
+      if (this.timer <= 0) { this.timer = _rnd(1.1, 2.0); const bx = _rnd(W * .2, W * .8), by = _rnd(H * .15, H * .55), h = _rnd(0, 360);
+        for (let i = 0; i < 80; i++) { const a = Math.random() * 7, sp = _rnd(30, 150); this.p.push({ x: bx, y: by, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1, h }); } }
+      for (const q of this.p) { q.vy += 70 * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.life -= dt * 0.45;
+        x.fillStyle = `hsla(${q.h},90%,66%,${Math.max(0, q.life)})`; x.fillRect(q.x, q.y, 3, 3); }
       this.p = this.p.filter((q) => q.life > 0);
     } },
 ];
@@ -2116,8 +2170,10 @@ function chillLoop(ts) {
   if (!CHILL.on) return;
   const dt = CHILL.last ? Math.min((ts - CHILL.last) / 1000, 0.05) : 0.016; CHILL.last = ts;
   CHILL.t += dt; CHILL.sw += dt;
-  if (CHILL.sw > 7) { CHILL.sw = 0; CHILL.scene = (CHILL.scene + 1) % CHILL_SCENES.length;
-    const s = CHILL_SCENES[CHILL.scene]; s.init(CHILL.W, CHILL.H); CHILL.x.clearRect(0, 0, CHILL.W, CHILL.H);
+  if (CHILL.sw > 13) { CHILL.sw = 0; CHILL.scene = (CHILL.scene + 1) % CHILL_SCENES.length;
+    const s = CHILL_SCENES[CHILL.scene]; s.init(CHILL.W, CHILL.H);
+    // soft wipe instead of a hard clear → smoother crossfade into the next scene
+    CHILL.x.fillStyle = "rgba(4,4,10,.6)"; CHILL.x.fillRect(0, 0, CHILL.W, CHILL.H);
     const el = document.getElementById("chillScene"); if (el) el.textContent = s.name; }
   CHILL_SCENES[CHILL.scene].draw(CHILL.x, dt, CHILL.W, CHILL.H);
   const ck = document.getElementById("chillClock");
