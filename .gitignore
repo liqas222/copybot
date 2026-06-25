@@ -11,3 +11,4 @@ __pycache__/
 
 # Claude Code local settings (optional)
 .claude/
+smart_state.json
