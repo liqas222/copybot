@@ -828,15 +828,13 @@ function btInterval(span) {
   }
   throw lastErr || new Error("postRetry failed");
 }
-let _btCoinResolve = {};   // bare coin -> working candle-coin string (or false if none works anywhere)
-async function btCandles(coin, rawCoin, from, to, ivName, dexes) {
-  if (_btCoinResolve[coin] === false) return [];                 // known: no candles on any dex → skip probing
-  // candidate coin strings: cached winner → bare → dex-prefixed raw → every known builder/stock dex prefix
+let _btCoinResolve = {};   // bare coin -> working candle-coin string (or false if none works)
+async function btCandles(coin, rawCoin, from, to, ivName) {
+  if (_btCoinResolve[coin] === false) return [];                 // known: no candles → skip re-probing (saves rate-limit)
   const cands = [];
   if (_btCoinResolve[coin]) cands.push(_btCoinResolve[coin]);
   cands.push(coin);
   if (rawCoin && rawCoin !== coin) cands.push(rawCoin);
-  for (const dx of (dexes || [])) if (dx) cands.push(dx + ":" + coin);
   const seen = new Set();
   for (const cn of cands) {
     if (seen.has(cn)) continue; seen.add(cn);
@@ -846,7 +844,7 @@ async function btCandles(coin, rawCoin, from, to, ivName, dexes) {
       if (arr.length) { arr.sort((a, b) => (+a.t) - (+b.t)); _btCoinResolve[coin] = cn; return arr; }
     } catch (e) { /* try next candidate */ }
   }
-  _btCoinResolve[coin] = false;                                  // remember failure so other trades of this coin don't re-probe
+  _btCoinResolve[coin] = false;
   return [];
 }
 function btBuildCycles(fills, from, now) {        // pair fills into position cycles (new open -> close only)
@@ -887,11 +885,18 @@ function btCycleExit(cy, candles, tp, lev, now) { // OUR exit: TP, liq, or follo
   const tpPx  = cy.side === "LONG" ? cy.entry * (1 + tp / lev)  : cy.entry * (1 - tp / lev);
   const liqPx = cy.side === "LONG" ? cy.entry * (1 - 1 / lev)   : cy.entry * (1 + 1 / lev);
   const scanEnd = cy.stillOpen ? (now || Date.now()) : cy.closeT;
-  // STEP 1 — whale's own fills (deterministic, no candle fetch): a fill price beyond our TP
-  // proves the price traded through it → count as TP win at that fill's time.
+  // STEP 1 — whale's own fills (deterministic, no candles needed). Scan chronologically: a fill
+  // price beyond our TP or our LIQ proves price traded through it → exit at whichever comes first.
+  // This is the ONLY liq signal for stock/builder coins that have no candleSnapshot data.
   for (const f of (cy.fills || [])) {
     if (f.t < cy.openT || f.t > scanEnd) continue;
-    if (cy.side === "LONG" ? f.px >= tpPx : f.px <= tpPx) return { t: f.t, px: tpPx, reason: "tp" };
+    if (cy.side === "LONG") {
+      if (f.px <= liqPx) return { t: f.t, px: liqPx, reason: "liq" };
+      if (f.px >= tpPx)  return { t: f.t, px: tpPx,  reason: "tp"  };
+    } else {
+      if (f.px >= liqPx) return { t: f.t, px: liqPx, reason: "liq" };
+      if (f.px <= tpPx)  return { t: f.t, px: tpPx,  reason: "tp"  };
+    }
   }
   // STEP 2 — candles fill the gaps between his fills (catches TP/liq he never traded at)
   for (const k of candles) {
@@ -939,7 +944,7 @@ async function btLoadData(addr, onProgress) {     // fetch fills + FINE per-trad
   const fills = await btFetchFills(addr, from, now);
   let cycles = btBuildCycles(fills, from, now).sort((a, b) => a.openT - b.openT);
   const cyclesN = cycles.length, fillsN = fills.length;
-  const dexes = await getDexes();                  // builder/stock perp dex names for candle-coin resolution
+  const dexes = await getDexes();                  // (kept for future use; candleSnapshot has no data for stock perps)
   // Per-trade fine candles: pick the finest interval that fits the trade's own duration.
   // Short trades → 1m candles → real intraday wicks → real liquidations detected.
   let noData = 0;
@@ -947,7 +952,7 @@ async function btLoadData(addr, onProgress) {     // fetch fills + FINE per-trad
     const cy = cycles[i];
     const span = Math.max(cy.closeT - cy.openT, 60000);
     const iv = btInterval(span);                  // 1m for trades up to ~3 days, then coarser
-    cy.candles = await btCandles(cy.coin, cy.rawCoin, cy.openT - iv[1], cy.closeT + iv[1], iv[0], dexes);
+    cy.candles = await btCandles(cy.coin, cy.rawCoin, cy.openT - iv[1], cy.closeT + iv[1], iv[0]);
     cy.candleIv = iv[0];
     if (!cy.candles.length) { cy.noData = true; noData++; }
     if (onProgress) onProgress(i + 1, cycles.length);
@@ -1023,7 +1028,7 @@ function renderBacktest(r, addr) {
       <div class="statrow" title="TP-Treffer · Liquidationen · Whale-Exit (kein TP/Liq) · Noch offen"><span>TP · Liq · Whale · Offen</span><span class="num">${r.tpHits} · ${r.liqs} · ${r.whaleExits} · ${r.stillOpen}</span></div>
       <div class="statrow" title="rohe Fills · erkannte Whale-Trades (30d)"><span>Fills · Trades erkannt</span><span class="num">${r.fillsN} · ${r.cyclesN}</span></div>
     </div>
-    ${r.noData ? `<div class="setnote err" style="margin-bottom:8px">⚠ ${r.noData} von ${r.cyclesN} Trades ohne Kerzendaten (Builder-/Stock-DEX) — bei diesen kann keine Liquidation geprüft werden, sie folgen dem Whale-Exit. Ergebnis daher eher zu optimistisch.</div>` : ""}
+    ${r.noData ? `<div class="setnote" style="margin-bottom:8px;opacity:.8">ℹ ${r.noData} von ${r.cyclesN} Trades ohne Kerzendaten (Stock-/Builder-DEX). Bei diesen wird Liq/TP nur aus den Whale-Fills geprüft (konservativ) — kurze Dips zwischen seinen Trades können fehlen.</div>` : ""}
     <div class="setnote">Entry = Whale-Entry · ${r.lev}× Hebel · 20% Margin/Trade · max 5 gleichzeitig · 1m-Kerzen pro Trade für echte Liq-Erkennung · Gebühren/Funding nicht modelliert</div>`;
 }
 let btDataCache = { addr: null, data: null };     // reuse loaded fills/candles between runs for the same wallet
