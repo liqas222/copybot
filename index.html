@@ -321,6 +321,19 @@
           </div>
         </section>
         <div id="app"><div class="state">Loading positions…</div></div>
+        <section class="panel" id="backtest">
+          <header class="phead"><span class="wlabel">Copy Backtest</span><span class="meta">30d</span></header>
+          <div class="pbody" style="display:grid;grid-template-columns:260px 1fr;gap:24px;align-items:start">
+            <div class="btcontrols">
+              <input id="btAddr" class="tgin" type="text" placeholder="0x… Wallet (leer = kopierte Wallet)" autocomplete="off" spellcheck="false" style="width:100%;margin-bottom:10px">
+              <div class="setrow"><label>Take-Profit</label><span class="ingrp"><input id="btTp" class="numin" type="number" min="1" max="1000" step="1" value="12"><span class="unit">% ROE</span></span></div>
+              <div class="setrow"><label>Hebel</label><span class="ingrp"><input id="btLev" class="numin" type="number" min="1" max="100" step="1" value="6"><span class="unit">×</span></span></div>
+              <div class="setrow"><label>Start balance</label><span class="ingrp"><input id="btStart" class="numin" type="number" min="1" step="100" value="1000"><span class="unit">$</span></span></div>
+              <button class="btn" style="margin-top:8px;width:100%" onclick="runBacktest()">▶ Run backtest</button>
+            </div>
+            <div id="btResult"><div class="setnote">Simuliert die letzten 30 Tage des kopierten Whales mit deiner Strategie: 6× Hebel, 20% Margin/Trade, max 5 Positionen.</div></div>
+          </div>
+        </section>
       </main>
       <aside class="side col-right">
         <section class="panel" id="botPortfolio"><header class="phead"><span class="wlabel">Copy-Bot</span><span class="botbadge off" id="botBadge">⚪</span></header><div class="state small">…</div></section>
@@ -332,19 +345,6 @@
         <section class="panel" id="botTg"><header class="phead"><span class="wlabel">Notifications</span></header><div class="state small">…</div></section>
       </aside>
     </div>
-    <section class="panel" id="backtest" style="margin:0 0 16px 0">
-      <header class="phead"><span class="wlabel">Copy Backtest</span><span class="meta">30d</span></header>
-      <div class="pbody" style="display:grid;grid-template-columns:260px 1fr;gap:24px;align-items:start">
-        <div class="btcontrols">
-          <input id="btAddr" class="tgin" type="text" placeholder="0x… Wallet (leer = kopierte Wallet)" autocomplete="off" spellcheck="false" style="width:100%;margin-bottom:10px">
-          <div class="setrow"><label>Take-Profit</label><span class="ingrp"><input id="btTp" class="numin" type="number" min="1" max="1000" step="1" value="12"><span class="unit">% ROE</span></span></div>
-          <div class="setrow"><label>Hebel</label><span class="ingrp"><input id="btLev" class="numin" type="number" min="1" max="100" step="1" value="6"><span class="unit">×</span></span></div>
-          <div class="setrow"><label>Start balance</label><span class="ingrp"><input id="btStart" class="numin" type="number" min="1" step="100" value="1000"><span class="unit">$</span></span></div>
-          <button class="btn" style="margin-top:8px;width:100%" onclick="runBacktest()">▶ Run backtest</button>
-        </div>
-        <div id="btResult"><div class="setnote">Simuliert die letzten 30 Tage des kopierten Whales mit deiner Strategie: 6× Hebel, 20% Margin/Trade, max 5 Positionen.</div></div>
-      </div>
-    </section>
     <div class="foot">Live prices from Hyperliquid · updates while this page is open · not financial advice</div>
   </div>
   <div id="chartModal" class="modal" style="display:none" aria-hidden="true">
