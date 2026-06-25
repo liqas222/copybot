@@ -1431,11 +1431,11 @@ let SMART_VIEWMODE = "", smartNextMs = 0;
 function smartCountdownTick() {
   const el = document.getElementById("smartCountdown"); if (!el) return;
   if (SMART_VIEWMODE === "build") { el.textContent = ""; return; }
-  if (!smartNextMs) { el.textContent = "🐙 Daten-Fetch: bald"; return; }
+  if (!smartNextMs) { el.innerHTML = "📡 Trades werden 24/7 gescannt · Top-Liste wird gleich aktualisiert"; return; }
   let s = Math.round((smartNextMs - Date.now()) / 1000);
-  if (s <= 0) { el.textContent = "⏳ Daten-Fetch startet gleich…"; return; }
-  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
-  el.textContent = "🐙 Nächster Daten-Fetch in " + (h ? h + "h " : "") + String(m).padStart(2, "0") + "m " + String(ss).padStart(2, "0") + "s";
+  if (s <= 0) { el.innerHTML = "📡 Trades werden 24/7 gescannt · 🔄 Listen-Update startet gleich…"; return; }
+  const m = Math.floor(s / 60), ss = s % 60;
+  el.innerHTML = "📡 Trades werden <b>24/7</b> gescannt · 🔄 Top-Liste neu in " + String(m).padStart(2, "0") + "m " + String(ss).padStart(2, "0") + "s";
 }
 function renderSmart(sm) {
   const port = document.getElementById("smartPort");
@@ -1470,6 +1470,7 @@ function renderSmart(sm) {
       <div class="statrow"><span>Open positions</span><span class="num">${(sm.pos || []).length} / 5</span></div>
       <div class="stratbox" style="margin-top:12px"><div class="strathd">Strategy</div>
         <div class="statrow"><span>Strategie</span><span class="num">Top-100 · neue Opens kopieren</span></div>
+        <div class="statrow"><span>Trade-Scan</span><span class="num pos">24/7 · alle ~60s</span></div>
         <div class="statrow"><span>Leverage / Size</span><span class="num">${sm.lev}× · ${sm.frac_pct}% equity</span></div>
         <div class="statrow"><span>Take-Profit</span><span class="num">+${sm.tp_pct}% ROE</span></div>
         <div class="statrow"><span>Exit</span><span class="num">nur TP / Liquidation</span></div>
