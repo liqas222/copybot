@@ -307,6 +307,7 @@
         <section class="panel" id="backtest">
           <header class="phead"><span class="wlabel">Copy Backtest</span><span class="meta">30d</span></header>
           <div class="pbody">
+            <input id="btAddr" class="tgin" type="text" placeholder="0x… Wallet (leer = kopierte Wallet)" autocomplete="off" spellcheck="false" style="width:100%;margin-bottom:10px">
             <div class="setrow"><label>Take-Profit</label><span class="ingrp"><input id="btTp" class="numin" type="number" min="1" max="1000" step="1" value="12"><span class="unit">% ROE</span></span></div>
             <div class="setrow"><label>Start balance</label><span class="ingrp"><input id="btStart" class="numin" type="number" min="1" step="100" value="1000"><span class="unit">$</span></span></div>
             <button class="btn" onclick="runBacktest()">▶ Run backtest</button>
@@ -886,11 +887,12 @@ async function backtest(addr, tp, start) {
   settle(Infinity);
   return { equity, pnl: equity - start, pct: start > 0 ? (equity - start) / start * 100 : 0, count, wins, losses, maxDD, tpHits, liqs, whaleExits };
 }
-function renderBacktest(r) {
+function renderBacktest(r, addr) {
   const out = document.getElementById("btResult"); if (!out) return;
   const pos = r.pnl >= 0;
+  const who = addr ? `<a class="waddr" href="https://hypurrscan.io/address/${addr}" target="_blank" rel="noopener">${addr.slice(0, 6)}…${addr.slice(-4)}</a>` : "";
   out.innerHTML = `
-    <div class="hero"><span class="herolabel">Result · 30 days</span><span class="heroval num ${pos ? "pos" : "neg"}">${fmtSignedC(r.pnl)}</span></div>
+    <div class="hero"><span class="herolabel">Result · 30 days ${who}</span><span class="heroval num ${pos ? "pos" : "neg"}">${fmtSignedC(r.pnl)}</span></div>
     <div class="statrow"><span>Return</span><span class="num ${pos ? "pos" : "neg"}">${(r.pct >= 0 ? "+" : "") + r.pct.toFixed(1)}%</span></div>
     <div class="statrow"><span>End balance</span><span class="num">${fmtUsdC(r.equity)}</span></div>
     <div class="statrow"><span>Trades</span><span class="num">${r.count}</span></div>
@@ -905,11 +907,12 @@ async function runBacktest() {
   const tp = parseFloat((document.getElementById("btTp") || {}).value) / 100;
   const start = parseFloat((document.getElementById("btStart") || {}).value);
   if (!(tp > 0) || !(start > 0)) { if (out) out.innerHTML = `<div class="setnote err">Bitte gültige Werte für TP und Startguthaben eingeben.</div>`; return; }
-  const cw = (WALLETS || []).find((w) => w.copied);
-  if (!cw) { if (out) out.innerHTML = `<div class="setnote err">Keine kopierte Wallet gefunden.</div>`; return; }
+  let addr = (((document.getElementById("btAddr") || {}).value) || "").trim();
+  if (!addr) { const cw = (WALLETS || []).find((w) => w.copied); addr = cw ? cw.addr : ""; }
+  if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) { if (out) out.innerHTML = `<div class="setnote err">Bitte eine gültige Wallet-Adresse (0x…) eingeben.</div>`; return; }
   backtestRunning = true;
-  if (out) out.innerHTML = `<div class="state small">Backtest läuft… Trades &amp; Candles werden geladen.</div>`;
-  try { renderBacktest(await backtest(cw.addr, tp, start)); }
+  if (out) out.innerHTML = `<div class="state small">Backtest läuft für ${addr.slice(0, 6)}…${addr.slice(-4)} — Trades &amp; Candles werden geladen.</div>`;
+  try { renderBacktest(await backtest(addr, tp, start), addr); }
   catch (e) { if (out) out.innerHTML = `<div class="setnote err">Backtest fehlgeschlagen (Rate-Limit oder keine Daten). Nochmal versuchen.</div>`; }
   backtestRunning = false;
 }
