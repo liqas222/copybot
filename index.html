@@ -403,6 +403,8 @@
   .octobar { width: 100%; max-width: 440px; height: 6px; border-radius: 999px; background: rgba(255,255,255,.07); overflow: hidden; }
   .octobar > i { display: block; height: 100%; background: var(--grad); width: 8%; transition: width .4s ease; }
   .octoprog { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .smartcd { font-family: var(--mono); font-size: 12.5px; color: var(--text); text-align: center; padding: 9px 12px;
+    border: 1px solid rgba(168,85,247,.3); border-radius: 10px; background: radial-gradient(120% 120% at 50% 0%, rgba(168,85,247,.10), transparent 70%); letter-spacing: .3px; }
   /* boredom screensaver */
   #chillBtn { position: fixed; right: 18px; bottom: 18px; z-index: 300; width: 46px; height: 46px; border-radius: 50%;
     border: 1px solid rgba(168,85,247,.5); background: radial-gradient(circle at 30% 30%, #a855f7, #6366f1); color: #fff;
@@ -1425,7 +1427,16 @@ function octoLoop(ts) {
   OCTO.raf = requestAnimationFrame(octoLoop);
 }
 window.addEventListener("resize", () => { if (OCTO.raf) octoResize(); });
-let SMART_VIEWMODE = "";
+let SMART_VIEWMODE = "", smartNextMs = 0;
+function smartCountdownTick() {
+  const el = document.getElementById("smartCountdown"); if (!el) return;
+  if (SMART_VIEWMODE === "build") { el.textContent = ""; return; }
+  if (!smartNextMs) { el.textContent = "🐙 Daten-Fetch: bald"; return; }
+  let s = Math.round((smartNextMs - Date.now()) / 1000);
+  if (s <= 0) { el.textContent = "⏳ Daten-Fetch startet gleich…"; return; }
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+  el.textContent = "🐙 Nächster Daten-Fetch in " + (h ? h + "h " : "") + String(m).padStart(2, "0") + "m " + String(ss).padStart(2, "0") + "s";
+}
 function renderSmart(sm) {
   const port = document.getElementById("smartPort");
   // building / fetching -> show the data-kraken
@@ -1463,7 +1474,10 @@ function renderSmart(sm) {
         <div class="statrow"><span>Take-Profit</span><span class="num">+${sm.tp_pct}% ROE</span></div>
         <div class="statrow"><span>Exit</span><span class="num">nur TP / Liquidation</span></div>
       </div>
+      <div class="setnote smartcd" id="smartCountdown" style="margin-top:10px"></div>
     </div>`;
+  smartNextMs = sm.next_build_ms || 0;
+  smartCountdownTick();
   renderSmartAux(sm);
 }
 function renderSmartAux(sm) {
@@ -2351,6 +2365,7 @@ function init() {
   setInterval(fetchSparks, 60000);
   renderTelemetry();
   setInterval(renderTelemetry, 1000);
+  setInterval(smartCountdownTick, 1000);
   pollBot();
   setInterval(pollBot, 4000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { refreshStructure(); fetchMarkets(); fetchMyClosed(); } });

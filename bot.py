@@ -909,7 +909,9 @@ def smart_publish(mids):
         "top": SMART_TOP[:100], "signals": SMART_SIG[:40], "tracked": len(SMART_TOP),
         "lev": SMART_LEV, "tp_pct": round(SMART_TP * 100), "frac_pct": round(SMART_FRAC * 100),
         "history": SMART["hist"][-1500:], "pnl_all": round(eq - SMART_START, 2),
-        "building": SMART_BUILD["on"], "build_done": SMART_BUILD["done"], "build_total": SMART_BUILD["total"]}
+        "building": SMART_BUILD["on"], "build_done": SMART_BUILD["done"], "build_total": SMART_BUILD["total"],
+        "next_build_ms": int((SMART_BUILD.get("last", 0) + SMART_REBUILD_H * 3600) * 1000) if SMART_BUILD.get("last") else 0,
+        "interval_min": SMART_REBUILD_H * 60}
 
 def smart_save():
     try:
@@ -938,13 +940,13 @@ def run_smart():
     smart_load()
     if not SMART_TOP:
         smart_build_top()
-    last_build = time.time(); idx = 0
+    SMART_BUILD["last"] = time.time(); idx = 0
     while True:
         try:
             if not SMART_TOP:
-                smart_build_top(); time.sleep(5); continue
-            if time.time() - last_build > SMART_REBUILD_H * 3600:
-                smart_build_top(); last_build = time.time()
+                smart_build_top(); SMART_BUILD["last"] = time.time(); time.sleep(5); continue
+            if time.time() - SMART_BUILD.get("last", 0) > SMART_REBUILD_H * 3600:
+                smart_build_top(); SMART_BUILD["last"] = time.time()
             try:
                 mids = hl_post(SOURCE_URL, {"type": "allMids"})
             except Exception:
