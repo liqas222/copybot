@@ -137,6 +137,8 @@
   .unit { color: var(--muted); font-size: 12px; }
   .stratbox { border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px 8px; margin-bottom: 14px; background: rgba(255,255,255,.015); }
   .strathd { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 4px 0 2px; }
+  .setgrp { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px 12px; background: rgba(255,255,255,.015); }
+  .setgrphd { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 2px 0 8px; }
   .setnote { margin-top: 9px; font-size: 11px; color: var(--muted); line-height: 1.5; }
   .setnote.ok { color: var(--long); }
   .setnote.err { color: var(--short); }
@@ -321,27 +323,12 @@
           </div>
         </section>
         <div id="app"><div class="state">Loading positions…</div></div>
-        <section class="panel" id="backtest">
-          <header class="phead"><span class="wlabel">Copy Backtest</span><span class="meta">30d</span></header>
-          <div class="pbody" style="display:grid;grid-template-columns:260px 1fr;gap:24px;align-items:start">
-            <div class="btcontrols">
-              <input id="btAddr" class="tgin" type="text" placeholder="0x… Wallet (leer = kopierte Wallet)" autocomplete="off" spellcheck="false" style="width:100%;margin-bottom:10px" oninput="btDataCache={addr:null,data:null}">
-              <div class="setrow"><label>Take-Profit</label><span class="ingrp"><input id="btTp" class="numin" type="number" min="1" max="1000" step="1" value="12"><span class="unit">% ROE</span></span></div>
-              <div class="setrow"><label>Hebel</label><span class="ingrp"><input id="btLev" class="numin" type="number" min="1" max="100" step="1" value="6"><span class="unit">×</span></span></div>
-              <div class="setrow"><label>Start balance</label><span class="ingrp"><input id="btStart" class="numin" type="number" min="1" step="100" value="1000"><span class="unit">$</span></span></div>
-              <button class="btn" style="margin-top:8px;width:100%" onclick="runBacktest()">▶ Run backtest</button>
-              <button class="btn" style="margin-top:8px;width:100%;border-color:rgba(60,200,140,.5)" onclick="runBestStrategy()">🏆 Beste Strategie finden</button>
-            </div>
-            <div id="btResult"><div class="setnote">Simuliert die letzten 30 Tage des kopierten Whales mit deiner Strategie: 6× Hebel, 20% Margin/Trade, max 5 Positionen.</div></div>
-          </div>
-        </section>
       </main>
       <aside class="side col-right">
         <section class="panel" id="botPortfolio"><header class="phead"><span class="wlabel">Copy-Bot</span><span class="botbadge off" id="botBadge">⚪</span></header><div class="state small">…</div></section>
         <section class="panel" id="botPosWrap" style="display:none"></section>
         <section class="panel" id="botClosed"><header class="phead"><span class="wlabel">Closed Trades</span></header><div class="state small">…</div></section>
         <section class="panel" id="botPerf"><header class="phead"><span class="wlabel">Copy-Bot Performance</span></header><div class="state small">…</div></section>
-        <section class="panel" id="botLog"><header class="phead"><span class="wlabel">Activity</span></header><div class="state small">…</div></section>
         <section class="panel" id="botSettings"><header class="phead"><span class="wlabel">Copy-Bot Settings</span></header><div class="state small">…</div></section>
         <section class="panel" id="botTg"><header class="phead"><span class="wlabel">Notifications</span></header><div class="state small">…</div></section>
       </aside>
@@ -808,367 +795,6 @@ function liqDot(coin) {
   return `<span class="liqdot ${t.c}" title="${esc(t.t)}"></span>`;
 }
 
-/* ---------- copy backtest: replay the copied whale's last 30d with my strategy ---------- */
-let backtestRunning = false;
-function btInterval(span) {
-  const ivs = [["1m", 60000], ["5m", 300000], ["15m", 900000], ["1h", 3600000], ["4h", 14400000], ["1d", 86400000]];
-  for (const it of ivs) { if (span / it[1] <= 4500) return it; }
-  return ivs[ivs.length - 1];
-}async function postRetry(body, tries = 5) {       // deterministic fetch: retry on rate-limit/error w/ backoff
-  let lastErr = null;
-  for (let i = 0; i < tries; i++) {
-    try {
-      const r = await post(body);
-      if (r && r.error) throw new Error(String(r.error));  // 200 w/ {error:"rate limited"}
-      return r;
-    } catch (e) {
-      lastErr = e;
-      await new Promise((res) => setTimeout(res, 400 * Math.pow(2, i))); // 400,800,1600,3200ms
-    }
-  }
-  throw lastErr || new Error("postRetry failed");
-}
-// Build coin -> builder/stock dex name by reading each dex's universe once (few calls, cached).
-let _btCoinDex = null;
-async function btCoinDexMap(dexes) {
-  if (_btCoinDex) return _btCoinDex;
-  const map = {};
-  for (const dx of (dexes || [])) {
-    if (!dx) continue;                                          // "" = main perp dex, coins are bare there
-    try {
-      const m = await postRetry({ type: "meta", dex: dx });
-      for (const a of ((m && m.universe) || [])) if (a && a.name) map[a.name] = dx;
-    } catch (e) { /* skip this dex */ }
-    await new Promise((r) => setTimeout(r, 120));
-  }
-  _btCoinDex = map;
-  return map;
-}
-let _btCoinResolve = {};   // bare coin -> function(from,to,iv)->req  (or false if no candles anywhere)
-async function btCandles(coin, rawCoin, from, to, ivName, coinDex) {
-  if (_btCoinResolve[coin] === false) return [];                 // known: no candles → skip (saves rate-limit)
-  const dx = coinDex && coinDex[coin];
-  // candidate request builders, most-likely-correct first. For builder/stock perps the coin lives on a
-  // named dex → try the dex-prefixed coin AND the req.dex parameter; for main perps just the bare coin.
-  const variants = [];
-  if (_btCoinResolve[coin]) variants.push(_btCoinResolve[coin]);
-  if (dx) {
-    variants.push((f, t, iv) => ({ coin: dx + ":" + coin, interval: iv, startTime: f, endTime: t }));
-    variants.push((f, t, iv) => ({ coin: coin, dex: dx, interval: iv, startTime: f, endTime: t }));
-    variants.push((f, t, iv) => ({ coin: dx + ":" + coin, dex: dx, interval: iv, startTime: f, endTime: t }));
-  }
-  variants.push((f, t, iv) => ({ coin: coin, interval: iv, startTime: f, endTime: t }));
-  if (rawCoin && rawCoin !== coin) variants.push((f, t, iv) => ({ coin: rawCoin, interval: iv, startTime: f, endTime: t }));
-  for (const mk of variants) {
-    try {
-      const c = await postRetry({ type: "candleSnapshot", req: mk(from, to, ivName) });
-      const arr = Array.isArray(c) ? c : [];
-      if (arr.length) { arr.sort((a, b) => (+a.t) - (+b.t)); _btCoinResolve[coin] = mk; return arr; }
-    } catch (e) { /* try next variant */ }
-  }
-  _btCoinResolve[coin] = false;
-  return [];
-}
-function btBuildCycles(fills, from, now) {        // pair fills into position cycles (new open -> close only)
-  const grp = {};
-  for (const f of fills || []) { const c = f.coin || "", bare = c.includes(":") ? c.split(":")[1] : c; (grp[bare] = grp[bare] || []).push(f); }
-  const cycles = [];
-  for (const coin in grp) {
-    const arr = grp[coin].sort((a, b) => a.time - b.time);
-    // Seed runPos from first fill's startPosition so pre-existing positions aren't mistaken for new opens
-    let runPos = parseFloat(arr[0]?.startPosition ?? 0);
-    let openT = null, openPx = 0, side = null, rawCoin = null, lastPx = 0, cyFills = [];
-    for (const f of arr) {
-      const sz = parseFloat(f.sz || 0);
-      lastPx = parseFloat(f.px || 0);
-      // Use startPosition from each fill when available for accuracy; fall back to self-tracking
-      const sp = f.startPosition != null ? parseFloat(f.startPosition) : null;
-      const prev = sp != null ? sp : runPos;
-      runPos = prev + (f.side === "B" ? sz : -sz);
-      // NEW open only: position was flat, now non-flat (not a scale-in / Nachkauf)
-      if (Math.abs(prev) < 1e-9 && Math.abs(runPos) > 1e-9) {
-        openT = f.time; openPx = lastPx; side = runPos > 0 ? "LONG" : "SHORT"; rawCoin = f.coin || coin; cyFills = [];
-      }
-      // collect every fill that belongs to the currently-open cycle (adds, partial closes, final close)
-      if (openT != null) cyFills.push({ t: f.time, px: lastPx });
-      // Full close: position back to flat
-      if (Math.abs(prev) > 1e-9 && Math.abs(runPos) < 1e-9 && openT != null) {
-        cycles.push({ coin, rawCoin, side, entry: openPx, openT, closeT: f.time, exitPx: lastPx, fills: cyFills });
-        openT = null;
-      }
-    }
-    if (openT != null) {                          // whale still in position at window end
-      cycles.push({ coin, rawCoin, side, entry: openPx, openT, closeT: now, exitPx: lastPx, fills: cyFills, stillOpen: true });
-    }
-  }
-  return cycles.filter((cy) => cy.openT >= from && cy.entry > 0);
-}
-function btCycleExit(cy, candles, tp, lev, now) { // OUR exit: TP, liq, or follow whale's close
-  const tpPx  = cy.side === "LONG" ? cy.entry * (1 + tp / lev)  : cy.entry * (1 - tp / lev);
-  const liqPx = cy.side === "LONG" ? cy.entry * (1 - 1 / lev)   : cy.entry * (1 + 1 / lev);
-  const scanEnd = cy.stillOpen ? (now || Date.now()) : cy.closeT;
-  // STEP 1 — whale's own fills (deterministic, no candles needed). Scan chronologically: a fill
-  // price beyond our TP or our LIQ proves price traded through it → exit at whichever comes first.
-  // This is the ONLY liq signal for stock/builder coins that have no candleSnapshot data.
-  for (const f of (cy.fills || [])) {
-    if (f.t < cy.openT || f.t > scanEnd) continue;
-    if (cy.side === "LONG") {
-      if (f.px <= liqPx) return { t: f.t, px: liqPx, reason: "liq" };
-      if (f.px >= tpPx)  return { t: f.t, px: tpPx,  reason: "tp"  };
-    } else {
-      if (f.px >= liqPx) return { t: f.t, px: liqPx, reason: "liq" };
-      if (f.px <= tpPx)  return { t: f.t, px: tpPx,  reason: "tp"  };
-    }
-  }
-  // STEP 2 — candles fill the gaps between his fills (catches TP/liq he never traded at)
-  for (const k of candles) {
-    const t = +k.t;
-    if (t < cy.openT || t > scanEnd) continue;
-    const hi = parseFloat(k.h), lo = parseFloat(k.l);
-    if (cy.side === "LONG") {
-      if (lo <= liqPx) return { t, px: liqPx, reason: "liq" };
-      if (hi >= tpPx)  return { t, px: tpPx,  reason: "tp"  };
-    } else {
-      if (hi >= liqPx) return { t, px: liqPx, reason: "liq" };
-      if (lo <= tpPx)  return { t, px: tpPx,  reason: "tp"  };
-    }
-  }
-  // STEP 3 — no TP/liq hit
-  if (cy.stillOpen) {
-    // value at last candle close (deterministic) → fall back to whale's last fill price; NOT the live mark
-    let px = cy.exitPx;
-    for (let i = candles.length - 1; i >= 0; i--) { const t = +candles[i].t; if (t <= scanEnd) { px = parseFloat(candles[i].c) || px; break; } }
-    return { t: scanEnd, px, reason: "open" };
-  }
-  // whale closed without triggering our targets → follow his exit
-  return { t: cy.closeT, px: cy.exitPx, reason: "whale" };
-}
-async function btFetchFills(addr, from, now) {   // paginate userFillsByTime to get the FULL window (>2000 fills)
-  let all = [], cursor = from, guard = 0;
-  while (guard++ < 60) {
-    // postRetry throws only after exhausting backoff → we get the FULL page set every run, not a random partial
-    const batch = await postRetry({ type: "userFillsByTime", user: addr, startTime: cursor, endTime: now });
-    if (!Array.isArray(batch) || !batch.length) break;
-    all = all.concat(batch);
-    if (batch.length < 2000) break;
-    const lastT = Math.max.apply(null, batch.map((f) => f.time));
-    if (!(lastT > cursor)) break;                // no forward progress -> stop
-    cursor = lastT + 1;
-    await new Promise((r) => setTimeout(r, 150)); // pace to avoid hitting the rate-limit in the first place
-  }
-  const seen = new Set(), out = [];
-  for (const f of all) { const k = f.time + "|" + (f.hash || f.oid || f.tid || ""); if (seen.has(k)) continue; seen.add(k); out.push(f); }
-  return out.filter((f) => f.time >= from && f.time <= now);
-}
-async function btLoadData(addr, onProgress) {     // fetch fills + FINE per-trade candles (independent of lev/tp)
-  // snap to the full hour so repeated runs use the EXACT same 30-day window → reproducible result
-  const now = Math.floor(Date.now() / 3600000) * 3600000, from = now - 30 * 86400000;
-  const fills = await btFetchFills(addr, from, now);
-  let cycles = btBuildCycles(fills, from, now).sort((a, b) => a.openT - b.openT);
-  const cyclesN = cycles.length, fillsN = fills.length;
-  const dexes = await getDexes();                  // builder/stock perp dex names
-  if (onProgress) onProgress(0, cycles.length, "DEX-Coins werden zugeordnet");
-  const coinDex = await btCoinDexMap(dexes);       // coin -> its dex, so we query candles in the right namespace
-  // Per-trade fine candles: pick the finest interval that fits the trade's own duration.
-  // Short trades → 1m candles → real intraday wicks → real liquidations detected.
-  let noData = 0;
-  for (let i = 0; i < cycles.length; i++) {
-    const cy = cycles[i];
-    const span = Math.max(cy.closeT - cy.openT, 60000);
-    const iv = btInterval(span);                  // 1m for trades up to ~3 days, then coarser
-    cy.candles = await btCandles(cy.coin, cy.rawCoin, cy.openT - iv[1], cy.closeT + iv[1], iv[0], coinDex);
-    cy.candleIv = iv[0];
-    if (!cy.candles.length) { cy.noData = true; noData++; }
-    if (onProgress) onProgress(i + 1, cycles.length);
-    await new Promise((r) => setTimeout(r, 80));   // pace to avoid rate-limit
-  }
-  // RELIABLE whale stats from fills — no candles needed (closedPnl is the whale's real realized PnL)
-  let whaleRealized = 0, whaleWins = 0, whaleLosses = 0;
-  for (const f of fills) {
-    const cp = parseFloat(f.closedPnl || 0);
-    if (cp > 0) whaleWins++; else if (cp < 0) whaleLosses++;
-    whaleRealized += cp;
-  }
-  // win rate by price direction across detected new-trade cycles (also reliable, leverage-independent)
-  let cWins = 0, cLosses = 0, moveSum = 0, cClosed = 0;
-  for (const cy of cycles) {
-    if (cy.stillOpen) continue;
-    const move = cy.side === "LONG" ? (cy.exitPx - cy.entry) / cy.entry : (cy.entry - cy.exitPx) / cy.entry;
-    moveSum += move; cClosed++;
-    if (move > 0) cWins++; else cLosses++;
-  }
-  const whale = { realized: whaleRealized, wins: whaleWins, losses: whaleLosses,
-    cWins, cLosses, avgMove: cClosed ? moveSum / cClosed : 0, closedTrades: cClosed };
-  return { cycles, now, fillsN, cyclesN, noData, whale };
-}
-function btSimulate(data, tp, lev, start) {        // pure computation: exits + equity for a given lev/tp
-  const FRAC = 0.20, MAXPOS = 5;
-  const { cycles, now, fillsN, cyclesN, noData, whale } = data;
-  for (const cy of cycles) cy.exit = btCycleExit(cy, cy.candles || [], tp, lev, now);
-  // event-driven equity simulation (compounding + 5-slot cap)
-  let equity = start, peakEq = start, maxDD = 0, wins = 0, losses = 0, count = 0, tpHits = 0, liqs = 0, whaleExits = 0, stillOpen = 0;
-  let open = [];
-  // track which whale cycle ID is currently "active" per coin — no re-entry until whale opens a brand new one
-  const activeCycle = {};
-  const settle = (untilT) => {
-    open.sort((a, b) => a.exitT - b.exitT);
-    while (open.length && open[0].exitT <= untilT) {
-      const tr = open.shift(); equity += tr.pnl;
-      if (tr.onSettle) tr.onSettle();
-      if (tr.pnl > 0) wins++; else losses++;
-      peakEq = Math.max(peakEq, equity); maxDD = Math.max(maxDD, peakEq > 0 ? (peakEq - equity) / peakEq : 0);
-    }
-  };
-  for (let i = 0; i < cycles.length; i++) {
-    const cy = cycles[i];
-    settle(cy.openT);
-    // skip if we already entered this whale cycle (TP hit earlier, but whale didn't open a new one)
-    if (activeCycle[cy.coin] === i) continue;
-    if (open.length >= MAXPOS) continue;
-    const margin = equity * FRAC; if (margin <= 0) continue;
-    activeCycle[cy.coin] = i;                    // lock this coin to this cycle
-    const size = margin * lev / cy.entry, sign = cy.side === "LONG" ? 1 : -1;
-    let pnl = cy.exit.reason === "liq" ? -margin : sign * size * (cy.exit.px - cy.entry);
-    if (pnl < -margin) pnl = -margin;
-    if (cy.exit.reason === "tp") tpHits++; else if (cy.exit.reason === "liq") liqs++; else if (cy.exit.reason === "open") stillOpen++; else whaleExits++;
-    // when our trade exits, release the coin lock (whale may re-open it later as a new cycle)
-    open.push({ exitT: cy.exit.t, pnl, coin: cy.coin, cycleIdx: i,
-      onSettle: () => { if (activeCycle[cy.coin] === i) delete activeCycle[cy.coin]; } });
-    count++;
-  }
-  settle(Infinity);
-  return { equity, pnl: equity - start, pct: start > 0 ? (equity - start) / start * 100 : 0, count, wins, losses, maxDD, tpHits, liqs, whaleExits, stillOpen, fillsN, cyclesN, noData, whale, lev, tp };
-}
-async function backtest(addr, tp, lev, start) {
-  const data = await btLoadData(addr);
-  return btSimulate(data, tp, lev, start);
-}
-// sweep lev × tp grid on the SAME loaded data, return best-by-% plus the grid
-function btBestStrategy(data, start) {
-  const LEVS = [2, 3, 5, 6, 8, 10, 15, 20, 25, 40];
-  const TPS  = [0.05, 0.08, 0.10, 0.12, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50];
-  let best = null;
-  for (const lev of LEVS) for (const tp of TPS) {
-    const r = btSimulate(data, tp, lev, start);
-    if (!best || r.pct > best.pct) best = r;
-  }
-  return best;
-}
-// Reliable whale-quality block from fills' closedPnl — accurate even without candle data.
-function whaleBlockHtml(w) {
-  if (!w) return "";
-  const rp = w.realized >= 0;
-  const tot = w.cWins + w.cLosses;
-  const wr = tot ? Math.round(100 * w.cWins / tot) : 0;
-  return `
-    <div style="margin-bottom:16px;padding:12px 14px;background:rgba(80,140,255,.07);border:1px solid rgba(80,140,255,.25);border-radius:10px">
-      <div class="herolabel" style="margin-bottom:8px">✅ Whale real · 30 Tage (aus echten Fills, ohne Kerzen — 100% zuverlässig)</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px 24px">
-        <div class="statrow"><span>Realisierter PnL</span><span class="num ${rp ? "pos" : "neg"}">${fmtSignedC(w.realized)}</span></div>
-        <div class="statrow"><span>Win rate (Kurs)</span><span class="num">${wr}% · ${w.cWins}W / ${w.cLosses}L</span></div>
-        <div class="statrow" title="durchschnittliche Kursbewegung pro Trade (ohne Hebel)"><span>Ø Bewegung/Trade</span><span class="num ${w.avgMove >= 0 ? "pos" : "neg"}">${(w.avgMove >= 0 ? "+" : "") + (w.avgMove * 100).toFixed(2)}%</span></div>
-        <div class="statrow"><span>Neue Trades</span><span class="num">${w.closedTrades}</span></div>
-      </div>
-    </div>`;
-}
-function renderBacktest(r, addr) {
-  const out = document.getElementById("btResult"); if (!out) return;
-  const pos = r.pnl >= 0;
-  const unreliable = r.cyclesN > 0 && r.noData / r.cyclesN > 0.3;   // >30% of trades have no price history
-  const who = addr ? `<a class="waddr" href="https://hypurrscan.io/address/${addr}" target="_blank" rel="noopener">${addr.slice(0, 6)}…${addr.slice(-4)}</a>` : "";
-  out.innerHTML = `
-    ${whaleBlockHtml(r.whale)}
-    ${unreliable ? `<div class="setnote err" style="margin-bottom:14px;padding:12px;line-height:1.5">⚠ <b>Hebel-Kopie nicht zuverlässig simulierbar.</b> ${r.noData} von ${r.cyclesN} Trades laufen auf Stock-/Builder-Perps ohne Kurs-Historie — ob deine gehebelte Kopie zwischendurch liquidiert worden wäre, ist nicht bestimmbar. Der echte Whale-PnL oben stimmt; die geschätzte Kopie-Rendite unten ist eher zu optimistisch.</div>` : ""}
-    <div class="hero" style="margin-bottom:16px${unreliable ? ";opacity:.55" : ""}"><span class="herolabel">Kopie-Schätzung · ${r.lev}× Hebel · 30 days</span><span class="heroval num ${pos ? "pos" : "neg"}" style="font-size:2.2rem">${fmtSignedC(r.pnl)}</span></div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px 24px;margin-bottom:12px">
-      <div class="statrow"><span>Return</span><span class="num ${pos ? "pos" : "neg"}">${(r.pct >= 0 ? "+" : "") + r.pct.toFixed(1)}%</span></div>
-      <div class="statrow"><span>End balance</span><span class="num">${fmtUsdC(r.equity)}</span></div>
-      <div class="statrow"><span>Trades simuliert</span><span class="num">${r.count}</span></div>
-      <div class="statrow"><span>Win rate</span><span class="num">${r.count ? Math.round(100 * r.wins / r.count) : 0}% · ${r.wins}W / ${r.losses}L</span></div>
-      <div class="statrow"><span>Max drawdown</span><span class="num neg">-${(r.maxDD * 100).toFixed(1)}%</span></div>
-      <div class="statrow" title="TP-Treffer · Liquidationen · Whale-Exit (kein TP/Liq) · Noch offen"><span>TP · Liq · Whale · Offen</span><span class="num">${r.tpHits} · ${r.liqs} · ${r.whaleExits} · ${r.stillOpen}</span></div>
-      <div class="statrow" title="rohe Fills · erkannte Whale-Trades (30d)"><span>Fills · Trades erkannt</span><span class="num">${r.fillsN} · ${r.cyclesN}</span></div>
-    </div>
-    ${r.noData && !unreliable ? `<div class="setnote" style="margin-bottom:8px;opacity:.8">ℹ ${r.noData} von ${r.cyclesN} Trades ohne Kerzendaten (Stock-/Builder-DEX). Bei diesen wird Liq/TP nur aus den Whale-Fills geprüft (konservativ) — kurze Dips zwischen seinen Trades können fehlen.</div>` : ""}
-    <div class="setnote">Entry = Whale-Entry · ${r.lev}× Hebel · 20% Margin/Trade · max 5 gleichzeitig · 1m-Kerzen pro Trade für echte Liq-Erkennung · Gebühren/Funding nicht modelliert</div>`;
-}
-let btDataCache = { addr: null, data: null };     // reuse loaded fills/candles between runs for the same wallet
-function btReadInputs() {
-  const out = document.getElementById("btResult");
-  const tp = parseFloat((document.getElementById("btTp") || {}).value) / 100;
-  const lev = parseFloat((document.getElementById("btLev") || {}).value) || 6;
-  const start = parseFloat((document.getElementById("btStart") || {}).value);
-  if (!(tp > 0) || !(start > 0) || !(lev > 0)) { if (out) out.innerHTML = `<div class="setnote err">Bitte gültige Werte eingeben.</div>`; return null; }
-  let addr = (((document.getElementById("btAddr") || {}).value) || "").trim();
-  if (!addr) { const cw = (WALLETS || []).find((w) => w.copied); addr = cw ? cw.addr : ""; }
-  if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) { if (out) out.innerHTML = `<div class="setnote err">Bitte eine gültige Wallet-Adresse (0x…) eingeben.</div>`; return null; }
-  return { tp, lev, start, addr, out };
-}
-async function btGetData(addr, out, label) {
-  if (btDataCache.addr === addr && btDataCache.data) return btDataCache.data;
-  const short = addr.slice(0, 6) + "…" + addr.slice(-4);
-  if (out) out.innerHTML = `<div class="state small">${label} für ${short} — Trades werden geladen…</div>`;
-  const data = await btLoadData(addr, (done, total, msg) => {
-    if (!out) return;
-    out.innerHTML = msg
-      ? `<div class="state small">${label} für ${short} — ${msg}…</div>`
-      : `<div class="state small">${label} für ${short} — 1m-Kerzen pro Trade: ${done}/${total}…</div>`;
-  });
-  btDataCache = { addr, data };
-  return data;
-}
-async function runBacktest() {
-  if (backtestRunning) return;
-  const inp = btReadInputs(); if (!inp) return;
-  const { tp, lev, start, addr, out } = inp;
-  backtestRunning = true;
-  try { const data = await btGetData(addr, out, "Backtest läuft"); renderBacktest(btSimulate(data, tp, lev, start), addr); }
-  catch (e) { console.error("backtest error", e); if (out) out.innerHTML = `<div class="setnote err">Backtest fehlgeschlagen: ${e && e.message ? e.message : e}. Nochmal versuchen.</div>`; }
-  backtestRunning = false;
-}
-async function runBestStrategy() {
-  if (backtestRunning) return;
-  const inp = btReadInputs(); if (!inp) return;
-  const { start, addr, out } = inp;
-  backtestRunning = true;
-  try {
-    const data = await btGetData(addr, out, "Beste Strategie wird gesucht");
-    if (out) out.innerHTML = `<div class="state small">Teste Hebel × TP Kombinationen…</div>`;
-    await new Promise((r) => setTimeout(r, 30));   // let the UI paint before the (synchronous) sweep
-    const best = btBestStrategy(data, start);
-    renderBestStrategy(best, addr, data);
-    // sync the input fields to the winning combo so a normal "Run backtest" matches
-    const tpEl = document.getElementById("btTp"), levEl = document.getElementById("btLev");
-    if (tpEl) tpEl.value = Math.round(best.tp * 100);
-    if (levEl) levEl.value = best.lev;
-  } catch (e) { console.error("best-strategy error", e); if (out) out.innerHTML = `<div class="setnote err">Suche fehlgeschlagen: ${e && e.message ? e.message : e}. Nochmal versuchen.</div>`; }
-  backtestRunning = false;
-}
-function renderBestStrategy(r, addr, data) {
-  const out = document.getElementById("btResult"); if (!out) return;
-  const pos = r.pnl >= 0;
-  const unreliable = r.cyclesN > 0 && r.noData / r.cyclesN > 0.3;
-  const who = addr ? `<a class="waddr" href="https://hypurrscan.io/address/${addr}" target="_blank" rel="noopener">${addr.slice(0, 6)}…${addr.slice(-4)}</a>` : "";
-  out.innerHTML = `
-    ${whaleBlockHtml(r.whale)}
-    ${unreliable ? `<div class="setnote err" style="margin-bottom:14px;padding:12px;line-height:1.5">⚠ <b>Nicht zuverlässig.</b> ${r.noData} von ${r.cyclesN} Trades laufen auf Stock-/Builder-Perps ohne Kurs-Historie. Die „beste" Kombination optimiert hier nur auf fehlende Liquidationsdaten und wählt künstlich hohen Hebel — bei echtem Geld führt das zu Totalverlust. Aussagekräftig nur bei Wallets mit normalen Krypto-Perps.</div>` : ""}
-    <div class="hero" style="margin-bottom:8px${unreliable ? ";opacity:.55" : ""}"><span class="herolabel">🏆 Beste Strategie · 30 days ${who}</span><span class="heroval num ${pos ? "pos" : "neg"}" style="font-size:2.2rem">${(r.pct >= 0 ? "+" : "") + r.pct.toFixed(1)}%</span></div>
-    <div class="hero" style="margin-bottom:16px;background:rgba(60,200,140,.08);border-radius:10px;padding:10px 14px">
-      <span class="herolabel">Optimaler Hebel &amp; Take-Profit</span>
-      <span class="heroval num pos" style="font-size:1.5rem">${r.lev}× · TP ${Math.round(r.tp * 100)}%</span>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px 24px;margin-bottom:12px">
-      <div class="statrow"><span>End balance</span><span class="num">${fmtUsdC(r.equity)}</span></div>
-      <div class="statrow"><span>PnL</span><span class="num ${pos ? "pos" : "neg"}">${fmtSignedC(r.pnl)}</span></div>
-      <div class="statrow"><span>Trades simuliert</span><span class="num">${r.count}</span></div>
-      <div class="statrow"><span>Win rate</span><span class="num">${r.count ? Math.round(100 * r.wins / r.count) : 0}% · ${r.wins}W / ${r.losses}L</span></div>
-      <div class="statrow"><span>Max drawdown</span><span class="num neg">-${(r.maxDD * 100).toFixed(1)}%</span></div>
-      <div class="statrow" title="TP-Treffer · Liquidationen · Whale-Exit · Noch offen"><span>TP · Liq · Whale · Offen</span><span class="num">${r.tpHits} · ${r.liqs} · ${r.whaleExits} · ${r.stillOpen}</span></div>
-    </div>
-    ${r.noData ? `<div class="setnote err" style="margin-bottom:8px">⚠ ${r.noData} von ${r.cyclesN} Trades ohne Kerzendaten — Liquidation dort nicht prüfbar, Ergebnis eher zu optimistisch.</div>` : ""}
-    <div class="setnote">Bestes Ergebnis aus 100 Kombinationen (Hebel 2–40× × TP 5–50%) auf denselben Whale-Trades. Hebel &amp; TP oben wurden auf den Gewinner gesetzt — „Run backtest" zeigt die Details. Höchste Rendite ≠ sicherste: prüfe Max Drawdown &amp; Liquidationen.</div>`;
-}
-
 /* ---------- format ---------- */
 function fmtPrice(x) { if (!x) return "—"; if (Math.abs(x) >= 1) return "$" + x.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); return "$" + Number(x.toPrecision(4)).toString(); }
 function fmtUsd(x) { return (x < 0 ? "-$" : "$") + Math.abs(x).toLocaleString("en-US", { maximumFractionDigits: 0 }); }
@@ -1458,7 +1084,6 @@ async function pollBot() {
     off("botClosed", "Closed Trades");
     off("botTg", "Notifications");
     off("botPerf", "Copy-Bot Performance");
-    off("botLog", "Activity");
     const wrap = document.getElementById("botPosWrap");
     if (wrap) wrap.style.display = "none";
   }
@@ -1500,7 +1125,6 @@ function renderBot(s) {
   renderBotClosed(s);
   botMyClosed = Array.isArray(s.my_closed) ? s.my_closed : null;
   renderMyClosed();
-  renderBotLog(s);
 }
 function renderBotPortfolio(s) {
   const port = document.getElementById("botPortfolio");
@@ -1555,12 +1179,6 @@ function renderBotClosed(s) {
     ? `${st.count} · <span class="${st.realized >= 0 ? "pos" : "neg"}">${fmtSigned(st.realized)}</span> · ${st.win_rate}% W`
     : "";
   el.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span><span class="meta">${meta}</span></header><div class="pbody">${body}</div>`;
-}
-function renderBotLog(s) {
-  const el = document.getElementById("botLog");
-  if (!el) return;
-  const log = (s.log || []).slice().reverse().map((e) => `<div class="logrow"><span class="logt">${esc(e.t)}</span>${esc(e.text)}</div>`).join("") || `<div class="state small">No activity yet.</div>`;
-  el.innerHTML = `<header class="phead"><span class="wlabel">Activity</span></header><div class="pbody"><div class="botlog tall">${log}</div></div>`;
 }
 function renderBotPerf(s) {
   const perf = document.getElementById("botPerf");
@@ -1625,29 +1243,42 @@ async function botCmd(cmd) {
 function botFlatten() { if (confirm("Close ALL positions?")) botCmd("flatten"); }
 function botAdopt() { if (confirm("Copy currently-open whale positions you don't hold yet, at the whale's entry price?")) botCmd("adopt"); }
 let botSettingsReady = false;
+// Update the live strategy summary (called every poll AND right after saving) without rebuilding inputs.
+function setStratSummary(s, c, st) {
+  const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  set("stratLev", s.fixed_lev != null ? s.fixed_lev + "× (fix)" : "—");
+  set("stratSize", s.capital_pct != null ? s.capital_pct + "% equity" : "—");
+  set("stratMax", s.max_positions || 5);
+  set("stratKill", "−" + (s.daily_loss_pct != null ? s.daily_loss_pct : 25) + "% realized");
+  set("stratTp", "Crypto +" + c + "% · Stocks +" + st + "%");
+}
 function renderBotSettings(s) {
   const el = document.getElementById("botSettings");
   if (!el) return;
-  // build once; don't rebuild on every poll so typing isn't interrupted
-  if (botSettingsReady && document.getElementById("tpCrypto")) return;
   const c = s.tp_crypto_pct != null ? s.tp_crypto_pct : 20;
   const st = s.tp_stock_pct != null ? s.tp_stock_pct : 20;
+  // Build inputs once (so typing isn't interrupted), but refresh the live summary every poll.
+  if (botSettingsReady && document.getElementById("tpCrypto")) { setStratSummary(s, c, st); return; }
   el.innerHTML = `<header class="phead"><span class="wlabel">Copy-Bot Settings</span></header>
     <div class="pbody">
       <div class="stratbox">
-        <div class="strathd">Strategy</div>
-        <div class="statrow"><span>Leverage</span><span class="num">${s.fixed_lev != null ? s.fixed_lev + "× (fix)" : "—"}</span></div>
-        <div class="statrow"><span>Size per trade</span><span class="num">${s.capital_pct != null ? s.capital_pct + "% equity" : "—"}</span></div>
-        <div class="statrow"><span>Max positions</span><span class="num">${s.max_positions || 5}</span></div>
-        <div class="statrow"><span>Daily kill-switch</span><span class="num">−${s.daily_loss_pct != null ? s.daily_loss_pct : 25}% realized</span></div>
-        <div class="statrow"><span>Take-Profit</span><span class="num">${c}% ROE</span></div>
+        <div class="strathd">Active strategy</div>
+        <div class="statrow"><span>Leverage</span><span class="num" id="stratLev">—</span></div>
+        <div class="statrow"><span>Size per trade</span><span class="num" id="stratSize">—</span></div>
+        <div class="statrow"><span>Max positions</span><span class="num" id="stratMax">—</span></div>
+        <div class="statrow"><span>Daily kill-switch</span><span class="num" id="stratKill">—</span></div>
+        <div class="statrow"><span>Take-Profit</span><span class="num" id="stratTp">—</span></div>
       </div>
-      <div class="setrow"><label>Take-Profit · Crypto</label><span class="ingrp"><input id="tpCrypto" class="numin" type="number" min="1" max="1000" step="1" value="${c}"><span class="unit">% ROE</span></span></div>
-      <div class="setrow"><label>Take-Profit · Stocks</label><span class="ingrp"><input id="tpStock" class="numin" type="number" min="1" max="1000" step="1" value="${st}"><span class="unit">% ROE</span></span></div>
-      <button class="btn" onclick="saveTp()">\u2713 Apply</button>
-      <div id="tpMsg" class="setnote">Applies to <b>new</b> trades. Open positions keep their TP.</div>
+      <div class="setgrp">
+        <div class="setgrphd">Edit Take-Profit</div>
+        <div class="setrow"><label>Crypto</label><span class="ingrp"><input id="tpCrypto" class="numin" type="number" min="1" max="1000" step="1" value="${c}"><span class="unit">% ROE</span></span></div>
+        <div class="setrow"><label>Stocks</label><span class="ingrp"><input id="tpStock" class="numin" type="number" min="1" max="1000" step="1" value="${st}"><span class="unit">% ROE</span></span></div>
+        <button class="btn" style="width:100%;margin-top:4px" onclick="saveTp()">✓ Apply</button>
+        <div id="tpMsg" class="setnote">Applies to <b>new</b> trades. Open positions keep their TP.</div>
+      </div>
     </div>`;
   botSettingsReady = true;
+  setStratSummary(s, c, st);
 }
 async function saveTp() {
   const c = parseFloat((document.getElementById("tpCrypto") || {}).value);
@@ -1655,12 +1286,16 @@ async function saveTp() {
   const msg = document.getElementById("tpMsg");
   if (!(c > 0) || !(st > 0)) { if (msg) { msg.textContent = "Please enter valid percentages."; msg.className = "setnote err"; } return; }
   try {
-    await fetch("/settp?token=" + encodeURIComponent(DASH_TOKEN), {
+    const r = await fetch("/settp?token=" + encodeURIComponent(DASH_TOKEN), {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: "tp_crypto=" + c + "&tp_stock=" + st
     });
-    if (msg) { msg.innerHTML = "\u2713 Saved: Crypto +" + c + "% \u00b7 Stocks +" + st + "% \u2014 applies to new trades."; msg.className = "setnote ok"; }
+    const j = await r.json().catch(() => ({}));
+    if (j && j.ok === false) throw new Error(j.error || "save failed");
+    const tpEl = document.getElementById("stratTp");           // reflect saved values in the live summary at once
+    if (tpEl) tpEl.textContent = "Crypto +" + c + "% · Stocks +" + st + "%";
+    if (msg) { msg.innerHTML = "✓ Saved: Crypto +" + c + "% · Stocks +" + st + "% — applies to new trades."; msg.className = "setnote ok"; }
   } catch (e) {
     if (msg) { msg.textContent = "Couldn't save."; msg.className = "setnote err"; }
   }
