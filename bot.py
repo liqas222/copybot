@@ -3,8 +3,8 @@
 Hyperliquid Copy-Trading Bot  ·  v3  (PAPER mode + 24/7 service + dashboard)
 ============================================================================
 Reads the tracked whale from MAINNET and copies its trades. It serves the
-dashboard + a live status panel, reachable from any device via a free
-Cloudflare tunnel (printed at startup and written to link.txt).
+dashboard + a live status panel, reachable from any device via a
+Tailscale Funnel (a fixed …ts.net URL).
 
 Three modes (set below):
   * PAPER_MODE = True  -> simulates copying into a virtual $1000 account
@@ -13,7 +13,7 @@ Three modes (set below):
   * PAPER_MODE = False + EXEC_URL = MAINNET  -> LIVE real money (needs config.json)
 
 Rules (all modes): copy opens & exits · 1/5 equity margin/trade · max 5 positions
-· leverage cross->min(his,10x) / isolated->exact(<=40x) · TP +20% ROE ·
+· leverage fixed 6x (cross & isolated) · TP +12% ROE ·
 no SL · daily -25% kill-switch · all coins.
 
 RUN:
@@ -31,14 +31,19 @@ from concurrent.futures import ThreadPoolExecutor
 WHALE            = "0x0c349d9b92fbd172bbb5a17a9db0a673a6a10ad3"
 SOURCE_URL       = "https://api.hyperliquid.xyz"        # read whale from MAINNET
 
+# Your own wallet — NOT copied, only logged: the bot records each of your real
+# trades with the actual leverage/margin it sees while the position is open, so
+# the dashboard can show exact ROE (Hyperliquid doesn't report leverage for
+# already-closed trades). Logging only covers trades opened while the bot runs.
+MY_WALLET        = "0x2a62f939cd2E36293c9e1ef73FdCA33daC8bcf95"
+
 PAPER_MODE       = True          # <- simulate (no money). Set False for real trading.
 PAPER_START      = 1000.0        # virtual starting capital for paper mode
 
 CAPITAL_FRACTION = 0.20
 MAX_POSITIONS    = 5
-CROSS_LEV_CAP    = 20      # cross positions: copy whale's leverage but cap at 20x
-MAX_LEV          = 40      # isolated positions: copy exact, capped at 40x
-TP_ROE           = 0.20      # default; live values held in SET (settable from dashboard)
+FIXED_LEV        = 6       # every copied trade uses exactly this leverage (cross & isolated)
+TP_ROE           = 0.12      # default; live values held in SET (settable from dashboard)
 SET = {"tp_crypto": TP_ROE, "tp_stock": TP_ROE}   # take-profit ROE per asset class
 DAILY_LOSS_LIMIT = 0.25
 POLL_SECONDS     = 3
@@ -85,6 +90,13 @@ EX   = {"ex": None}
 # virtual book for paper mode
 PAPER = {"cash": PAPER_START, "pos": {}, "hist": [], "closed": []}   # pos: key(tuple) -> dict; hist: [[t_ms, equity], ...]; closed: [trade dicts]
 HIST_EVERY = 60       # seconds between equity snapshots for the chart
+
+# log of YOUR real trades (MY_WALLET): open snapshot -> closed trade with exact ROE
+MINE = {"pos": {}, "closed": []}   # pos: key(tuple) -> snapshot dict; closed: [trade dicts]
+
+# manual "adopt": set by the dashboard -> the loop copies currently-open whale
+# positions we don't hold yet, entered at the whale's OWN entry price.
+ADOPT = {"pending": False}
 
 
 # ---------------- notifications + log ----------------
@@ -224,8 +236,7 @@ def round_px(px):
     return round(px, max(0, digits))
 
 def my_leverage(whale_lev, mode):
-    cap = CROSS_LEV_CAP if mode == "cross" else MAX_LEV
-    return max(1, min(int(round(whale_lev)), cap))
+    return FIXED_LEV          # fixed leverage on every trade, regardless of the whale's
 
 
 # ---------------- paper helpers ----------------
@@ -380,6 +391,9 @@ class Handler(BaseHTTPRequestHandler):
                 st["tg_chat"] = TG["chat"] if bool(TG["token"]) else ""
                 st["tp_crypto_pct"] = round(SET["tp_crypto"] * 100, 2)
                 st["tp_stock_pct"] = round(SET["tp_stock"] * 100, 2)
+                st["fixed_lev"] = FIXED_LEV
+                st["capital_pct"] = round(CAPITAL_FRACTION * 100, 1)
+                st["daily_loss_pct"] = round(DAILY_LOSS_LIMIT * 100, 1)
                 st["wallets"] = wallets_payload()
                 st["log"] = STATE["log"][-60:]
             return self._send(200, json.dumps(st))
@@ -395,6 +409,9 @@ class Handler(BaseHTTPRequestHandler):
             STATE["paused"] = False; tg("▶️ Bot resumed (dashboard)")
         elif path == "/flatten":
             threading.Thread(target=flatten_all, daemon=True).start()
+        elif path == "/adopt":
+            ADOPT["pending"] = True
+            tg("➕ Adopt requested — copying current whale positions at their entry…")
         elif path == "/settg":
             ln = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(ln).decode("utf-8", "ignore") if ln > 0 else ""
@@ -508,13 +525,16 @@ def start_server():
 # ---------------- paper persistence + display helpers ----------------
 PAPER_FILE = os.path.join(HERE, "paper_state.json")
 
-def save_paper(day_start_eq, day):
+def save_paper(day_start_eq, day_start_cash, day):
     try:
         data = {"cash": PAPER["cash"],
                 "pos": {("%s|%s" % k): v for k, v in PAPER["pos"].items()},
                 "hist": PAPER["hist"][-3000:],
                 "closed": PAPER.get("closed", [])[-500:],
+                "mine_pos": {("%s|%s" % k): v for k, v in MINE["pos"].items()},
+                "mine_closed": MINE.get("closed", [])[-500:],
                 "day_start_eq": day_start_eq,
+                "day_start_cash": day_start_cash,
                 "day": day.isoformat()}
         tmp = PAPER_FILE + ".tmp"
         json.dump(data, open(tmp, "w"))
@@ -534,10 +554,16 @@ def load_paper():
             PAPER["pos"][(dex, bare)] = v
         PAPER["hist"] = d.get("hist") or []
         PAPER["closed"] = d.get("closed") or []
+        MINE["pos"] = {}
+        for ks, v in (d.get("mine_pos") or {}).items():
+            dex, bare = ks.split("|", 1)
+            MINE["pos"][(dex, bare)] = v
+        MINE["closed"] = d.get("mine_closed") or []
         ds = d.get("day_start_eq", PAPER["cash"])
+        dsc = d.get("day_start_cash", PAPER["cash"])
         day = (datetime.date.fromisoformat(d["day"]) if d.get("day")
                else datetime.datetime.now(datetime.timezone.utc).date())
-        return ds, day
+        return ds, dsc, day
     except Exception as e:
         print("load_paper error:", e)
         return None
@@ -573,7 +599,7 @@ def record_closed(p, pnl, reason):
         "kind": "Stock" if p.get("dex") else "Crypto",
         "side": p.get("side"), "entry": p.get("entry"),
         "lev": p.get("lev"), "mode": p.get("mode"), "margin": round(p.get("margin", 0), 2),
-        "pnl": round(pnl, 2), "roe": round(roe, 4),
+        "pnl": round(pnl, 2), "roe": round(roe, 4), "peak_roe": round(p.get("peak_roe", 0.0), 4),
         "opened_ms": p.get("opened_ms", 0), "closed_ms": int(time.time() * 1000),
         "reason": reason,
     })
@@ -588,6 +614,64 @@ def closed_summary():
             "win_rate": round(100.0 * wins / len(c), 1) if c else 0.0,
             "realized": round(total, 2)}
 
+# ---- log YOUR real trades (MY_WALLET) with the real leverage seen while open ----
+_mymiss = {}        # key -> consecutive CONFIRMED-absent polls (debounced close)
+_myfirst = True     # first poll = baseline: pre-existing positions have unknown open time
+
+def my_closed_summary():
+    c = MINE.get("closed", [])
+    wins = sum(1 for t in c if t["pnl"] > 0)
+    total = sum(t["pnl"] for t in c)
+    return {"count": len(c), "wins": wins,
+            "win_rate": round(100.0 * wins / len(c), 1) if c else 0.0,
+            "realized": round(total, 2)}
+
+def log_my_trades(mine_now, myok):
+    """Update open snapshots and record closed trades for MY_WALLET. Call inside LOCK
+    (no network here — positions are fetched in the loop). Uses the real leverage/margin
+    Hyperliquid reports while a position is open, so closed-trade ROE is exact."""
+    global _myfirst
+    now_ms = int(time.time() * 1000)
+    for key, w in mine_now.items():
+        mk = w["mark"] or w["entry"] or 0
+        szabs = abs(w["szi"])
+        lev = w["lev"] or 1
+        margin = (mk * szabs / lev) if lev else (mk * szabs)
+        if key in MINE["pos"]:
+            MINE["pos"][key].update(entry=w["entry"], lev=lev, mode=w["mode"], side=w["side"],
+                                    sz=szabs, margin=margin, last_mark=mk)
+        else:
+            MINE["pos"][key] = {"bare": w["bare"], "coin": w["coin"], "dex": w["dex"],
+                                "side": w["side"], "entry": w["entry"], "lev": lev,
+                                "mode": w["mode"], "sz": szabs, "margin": margin, "last_mark": mk,
+                                "opened_ms": 0 if _myfirst else now_ms}
+        cur = MINE["pos"][key]                         # track best ROE reached (for the popup)
+        sign = 1 if w["side"] == "LONG" else -1
+        roe_now = (sign * szabs * (mk - w["entry"]) / margin) if margin else 0.0
+        cur["peak_roe"] = max(cur.get("peak_roe", roe_now), roe_now)
+        _mymiss[key] = 0
+    for key in list(MINE["pos"].keys()):
+        if key in mine_now:
+            continue
+        if key[0] not in myok:
+            continue                       # that dex wasn't read this poll -> leave untouched
+        _mymiss[key] = _mymiss.get(key, 0) + 1
+        if _mymiss[key] >= CLOSE_CONFIRM:
+            p = MINE["pos"].pop(key); _mymiss.pop(key, None)
+            sign = 1 if p["side"] == "LONG" else -1
+            exitpx = p.get("last_mark") or p["entry"]
+            pnl = sign * p["sz"] * (exitpx - p["entry"])
+            roe = (pnl / p["margin"]) if p["margin"] else 0.0
+            MINE["closed"].append({
+                "bare": p["bare"], "coin": p["coin"], "kind": "Stock" if p["dex"] else "Crypto",
+                "side": p["side"], "entry": p["entry"], "exit": exitpx,
+                "lev": int(round(p["lev"])) if p.get("lev") else 1, "mode": p["mode"], "margin": round(p["margin"], 2),
+                "pnl": round(pnl, 2), "roe": round(roe, 4), "peak_roe": round(p.get("peak_roe", 0.0), 4),
+                "opened_ms": p.get("opened_ms", 0), "closed_ms": now_ms})
+            if len(MINE["closed"]) > 500:
+                del MINE["closed"][:len(MINE["closed"]) - 500]
+    _myfirst = False
+
 def build_positions(whale, mids):
     out = []
     for key, p in PAPER["pos"].items():
@@ -595,11 +679,14 @@ def build_positions(whale, mids):
         sign = 1 if p["side"] == "LONG" else -1
         upnl = sign * p["sz"] * (mk - p["entry"])
         roe = (upnl / p["margin"]) if p["margin"] else 0
+        peak = max(p.get("peak_roe", roe), roe)
+        p["peak_roe"] = peak
         out.append({"bare": p["bare"], "coin": p.get("coin", p["bare"]),
                     "kind": "Stock" if p.get("dex") else "Crypto",
                     "side": p["side"], "sz": p["sz"], "entry": p["entry"], "mark": mk,
                     "lev": p["lev"], "mode": p["mode"], "margin": p["margin"],
                     "upnl": round(upnl, 2), "roe": round(roe, 4),
+                    "peak_roe": round(peak, 4), "tp": p.get("tp"),
                     "value": abs(p["sz"]) * mk,
                     "opened": p.get("opened_ms", 0)})
     out.sort(key=lambda x: x["value"], reverse=True)
@@ -615,6 +702,8 @@ def publish_state(equity, day_start_eq, killed, whale, mids):
                  history=PAPER["hist"][-1500:],
                  closed=list(reversed(PAPER.get("closed", [])[-80:])),
                  closed_stats=closed_summary(),
+                 my_closed=list(reversed(MINE.get("closed", [])[-120:])),
+                 my_closed_stats=my_closed_summary(),
                  pnl_24h=round(perf_window(equity, 86400000), 2),
                  pnl_7d=round(perf_window(equity, 604800000), 2),
                  pnl_30d=round(perf_window(equity, 2592000000), 2),
@@ -632,12 +721,13 @@ def run_paper():
     print("\n>>> Dashboard:  http://<server-ip>/   (token: %s)\n" % DASH_TOKEN)
 
     if loaded:
-        day_start_eq, day = loaded
+        day_start_eq, day_start_cash, day = loaded
         tg("💾 Previous paper state loaded · cash $%.2f · %d open position(s)"
            % (PAPER["cash"], len(PAPER["pos"])))
     else:
         day = datetime.datetime.now(datetime.timezone.utc).date()
         day_start_eq = PAPER_START
+        day_start_cash = PAPER_START
     killed = False
     known = set(PAPER["pos"].keys())   # whale keys we already account for (baseline + copied)
     based = set()                      # dexes whose baseline has been established (read OK once)
@@ -654,6 +744,10 @@ def run_paper():
             try:    mids = hl_post(SOURCE_URL, {"type": "allMids"})
             except Exception: mids = {}
 
+            # read YOUR wallet too (logged, not copied) — done outside the lock
+            try:    mine_now, myok = get_positions_ex(SOURCE_URL, MY_WALLET)
+            except Exception: mine_now, myok = {}, set()
+
             # First successful read of a dex = baseline: its CURRENT positions are
             # pre-existing -> mark 'known' so they are NEVER copied. Only positions
             # that appear AFTER the baseline count as genuine new opens.
@@ -669,7 +763,7 @@ def run_paper():
                 with LOCK:
                     eq = paper_equity(whale, mids)
                     publish_state(eq, day_start_eq, killed, whale, mids)
-                    save_paper(day_start_eq, day)
+                    save_paper(day_start_eq, day_start_cash, day)
                 tg("👀 Watching from now — existing whale positions are NOT copied. Only NEW ones, confirmed %d× (open & close)." % CLOSE_CONFIRM)
                 time.sleep(POLL_SECONDS); continue
 
@@ -678,6 +772,7 @@ def run_paper():
                 if today != day:
                     day = today; killed = False
                     day_start_eq = paper_equity(whale, mids)
+                    day_start_cash = PAPER["cash"]
                     events.append("🌅 New day — kill-switch reset.")
 
                 # TP (per-position, locked at open) / liquidation
@@ -685,6 +780,7 @@ def run_paper():
                     p = PAPER["pos"][key]
                     pnl = _pnl(key, p, whale, mids)
                     roe = pnl / p["margin"] if p["margin"] else 0
+                    p["peak_roe"] = max(p.get("peak_roe", roe), roe)   # best ROE reached (for the popup)
                     tp = p.get("tp") or (SET["tp_stock"] if p.get("dex") else SET["tp_crypto"])
                     if pnl <= -p["margin"]:
                         PAPER["cash"] -= p["margin"]; PAPER["pos"].pop(key)
@@ -712,17 +808,54 @@ def run_paper():
                                 events.append("🔻 CLOSED %s (whale exit) — PnL $%.2f" % (p["bare"], pnl))
                     # else: that dex wasn't read this poll -> unknown, leave untouched
 
+                log_my_trades(mine_now, myok)
                 equity = paper_equity(whale, mids)
                 publish_state(equity, day_start_eq, killed, whale, mids)
-                save_paper(day_start_eq, day)
+                save_paper(day_start_eq, day_start_cash, day)
 
             for e in events:
                 tg(e)
 
-            # daily kill-switch
-            if not killed and day_start_eq > 0 and equity <= day_start_eq * (1 - DAILY_LOSS_LIMIT):
+            # daily kill-switch — counts only REALIZED losses today (closed trades /
+            # liquidations move PAPER["cash"]); open positions in the red don't trip it.
+            realized_loss = day_start_cash - PAPER["cash"]
+            if not killed and day_start_eq > 0 and realized_loss >= DAILY_LOSS_LIMIT * day_start_eq:
                 killed = True
-                tg("🛑 KILL-SWITCH: −%.0f%% today. No new trades." % (DAILY_LOSS_LIMIT * 100))
+                tg("🛑 KILL-SWITCH: realized −%.0f%% today. No new trades." % (DAILY_LOSS_LIMIT * 100))
+
+            # manual adoption: copy any currently-open whale position we don't hold yet,
+            # entered at the whale's OWN entry (as if we'd opened it together with them).
+            # Bypasses pause/kill-switch (it's an explicit user action).
+            if ADOPT["pending"]:
+                ADOPT["pending"] = False
+                adopted = []
+                with LOCK:
+                    for key, w in whale.items():
+                        if key[0] not in okdex or key in PAPER["pos"]:
+                            continue
+                        entry = w["entry"] or w["mark"] or 0
+                        if entry <= 0:
+                            continue
+                        known.add(key)
+                        if len(PAPER["pos"]) >= MAX_POSITIONS:
+                            adopted.append("⏭️ %s not adopted — %d slots full." % (w["bare"], MAX_POSITIONS)); continue
+                        eq = paper_equity(whale, mids)
+                        margin = eq * CAPITAL_FRACTION
+                        lev = my_leverage(w["lev"], w["mode"])
+                        sz = (margin * lev) / entry
+                        tp = SET["tp_stock"] if w["dex"] else SET["tp_crypto"]
+                        PAPER["pos"][key] = {"bare": w["bare"], "coin": w["coin"], "dex": w["dex"],
+                                             "side": w["side"], "entry": entry, "lev": lev,
+                                             "mode": w["mode"], "sz": sz, "margin": margin, "tp": tp,
+                                             "opened": time.strftime("%H:%M:%S"),
+                                             "opened_ms": int(time.time() * 1000)}
+                        adopted.append("✅ ADOPTED %s %s @ $%.4f (whale entry) · margin $%.2f · %dx %s · TP +%.0f%% ROE"
+                                       % (w["bare"], w["side"], entry, margin, lev,
+                                          "Cross" if w["mode"] == "cross" else "Isolated", tp * 100))
+                for m in adopted:
+                    tg(m)
+                if not adopted:
+                    tg("ℹ️ Adopt: no open whale position to copy (all already held).")
 
             # genuine NEW opens only: present on a read dex, not already known,
             # and confirmed for OPEN_CONFIRM consecutive polls (no single-tick blips)

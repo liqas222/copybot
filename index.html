@@ -92,6 +92,17 @@
   .mctip b { display: block; font-family: var(--mono); }
   .mctip span { color: var(--muted); font-size: 11px; }
   svg.spark { display: block; width: 100%; height: 30px; }
+  .tgrid { padding: 6px 18px 18px; overflow-y: auto; max-height: calc(90vh - 60px); }
+  .trow { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; }
+  .trow:first-child { border-top: none; }
+  .tk { color: var(--muted); }
+  .tv { font-variant-numeric: tabular-nums; text-align: right; font-weight: 550; }
+  tr.prow { cursor: pointer; }
+  tr.prow:hover td { background: rgba(255,255,255,.035); }
+  .ctrade[role=button] { cursor: pointer; border-radius: 6px; }
+  .ctrade[role=button]:hover { background: rgba(255,255,255,.035); }
+  .mrow2[role=button] { cursor: pointer; }
+  .mrow2[role=button]:hover { border-color: var(--line2); }
   .movers { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   .movhd { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); margin-bottom: 7px; }
   .movrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; font-size: 13px; }
@@ -124,6 +135,8 @@
     color: var(--text); padding: 7px 9px; font-size: 14px; text-align: right; font-variant-numeric: tabular-nums; }
   .numin:focus { outline: none; border-color: #2c4f47; }
   .unit { color: var(--muted); font-size: 12px; }
+  .stratbox { border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px 8px; margin-bottom: 14px; background: rgba(255,255,255,.015); }
+  .strathd { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 4px 0 2px; }
   .setnote { margin-top: 9px; font-size: 11px; color: var(--muted); line-height: 1.5; }
   .setnote.ok { color: var(--long); }
   .setnote.err { color: var(--short); }
@@ -201,12 +214,27 @@
   th:first-child, td:first-child { text-align: left; }
   th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--line); }
   tbody tr + tr td { border-top: 1px solid var(--line); }
+  th.drag-th { cursor: grab; }
+  th.drag-th.dragging { opacity: .4; }
+  th.drag-th.drop-target { box-shadow: inset 2px 0 0 #5b8def; }
+  table.narrow { min-width: 0; }
+  td.pos { color: var(--long); }
+  td.neg { color: var(--short); }
   .asset { display: flex; align-items: center; gap: 8px; }
   .coin { font-weight: 650; }
   .chip { font-size: 10.5px; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line); color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
   .chip.stock { color: #d8b46a; border-color: #4a3d20; }
   .chip.crypto { color: #7fb0e6; border-color: #243a52; }
   .chip.botchip { color: #9fb558; border-color: #586733; }
+  .chip.cross { color: #7fb0e6; border-color: #243a52; }
+  .chip.iso { color: #d8a06a; border-color: #4a3320; }
+  .liqdot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; flex: none; }
+  .liqdot.hi { background: #2ebd85; }
+  .liqdot.mid { background: #d8b46a; }
+  .liqdot.lo { background: #f6465d; }
+  .liqdot.unk { background: #6b7480; }
+  .liqlegend { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: var(--muted); margin-top: 8px; }
+  .liqlegend .liqdot { margin-right: 4px; }
   .side { font-weight: 650; font-size: 13px; padding: 2px 8px; border-radius: 5px; }
   .side.long, .mside.long { color: var(--long); background: rgba(46,189,133,.12); }
   .side.short, .mside.short { color: var(--short); background: rgba(246,70,93,.12); }
@@ -215,17 +243,19 @@
   .c-pnl.neg .v, .neg { color: var(--short); }
   .roe { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
   .state { padding: 28px 16px; text-align: center; color: var(--muted); }
-  .ctrade { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 0; border-top: 1px solid var(--line); }
+  .ctrade { display: flex; flex-direction: column; gap: 3px; padding: 9px 0; border-top: 1px solid var(--line); }
   .ctrade:first-child { border-top: none; }
-  .ctleft { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .ctrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+  .ctl { display: flex; align-items: center; gap: 7px; min-width: 0; }
   .ctcoin { font-weight: 600; font-size: 13px; letter-spacing: .3px; }
-  .ctdate { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .ctlev { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .ctdate { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .ctmini { font-size: 10px; padding: 1px 5px; border-radius: 4px; font-weight: 650; }
   .ctmini.long { color: var(--long); background: rgba(46,189,133,.12); }
   .ctmini.short { color: var(--short); background: rgba(246,70,93,.12); }
-  .ctright { text-align: right; white-space: nowrap; }
+  .ctsub { font-family: var(--mono); }
   .ctpnl { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
-  .ctpct { display: block; font-family: var(--mono); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+  .ctpct { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; }
   .foot { color: var(--muted); font-size: 12px; text-align: center; margin-top: 26px; }
   .ranges { display: flex; gap: 6px; margin-bottom: 10px; }
   .rbtn { flex: 1; background: #161b22; color: var(--muted); border: 1px solid var(--line); border-radius: 7px;
@@ -274,6 +304,17 @@
       <aside class="side col-left">
         <section class="panel" id="myPortfolio"><header class="phead"><span class="wlabel">My Portfolio</span></header><div class="state small">Loading…</div></section>
         <section class="panel" id="myPerf"><header class="phead"><span class="wlabel">My Performance</span></header><div class="state small">Loading…</div></section>
+        <section class="panel" id="backtest">
+          <header class="phead"><span class="wlabel">Copy Backtest</span><span class="meta">30d</span></header>
+          <div class="pbody">
+            <input id="btAddr" class="tgin" type="text" placeholder="0x… Wallet (leer = kopierte Wallet)" autocomplete="off" spellcheck="false" style="width:100%;margin-bottom:10px">
+            <div class="setrow"><label>Take-Profit</label><span class="ingrp"><input id="btTp" class="numin" type="number" min="1" max="1000" step="1" value="12"><span class="unit">% ROE</span></span></div>
+            <div class="setrow"><label>Hebel</label><span class="ingrp"><input id="btLev" class="numin" type="number" min="1" max="100" step="1" value="6"><span class="unit">×</span></span></div>
+            <div class="setrow"><label>Start balance</label><span class="ingrp"><input id="btStart" class="numin" type="number" min="1" step="100" value="1000"><span class="unit">$</span></span></div>
+            <button class="btn" onclick="runBacktest()">▶ Run backtest</button>
+            <div id="btResult"><div class="setnote">Simuliert die letzten 30 Tage des kopierten Whales mit deiner Strategie: 6× Hebel, 20% Margin/Trade, max 5 Positionen.</div></div>
+          </div>
+        </section>
         <section class="panel" id="marketWatch"><header class="phead"><span class="wlabel">Market Watch</span><span class="meta">24h</span></header><div class="state small">Loading…</div></section>
         <section class="panel" id="myClosed"><header class="phead"><span class="wlabel">Closed Trades</span></header><div class="state small">Loading…</div></section>
       </aside>
@@ -287,6 +328,7 @@
               <button class="btn" onclick="addWallet()">+ Track</button>
             </div>
             <div id="trackMsg" class="setnote"></div>
+            <div class="liqlegend">Liquidität: <span><span class="liqdot hi"></span>liquide</span><span><span class="liqdot mid"></span>mittel</span><span><span class="liqdot lo"></span>illiquide</span><span><span class="liqdot unk"></span>nicht im Hauptmarkt → meiden</span></div>
           </div>
         </section>
         <div id="app"><div class="state">Loading positions…</div></div>
@@ -314,6 +356,16 @@
       <div class="modalchart" id="mcChart"><div class="state">Loading…</div></div>
     </div>
   </div>
+  <div id="tradeModal" class="modal" style="display:none" aria-hidden="true">
+    <div class="modalbg" onclick="closeTrade()"></div>
+    <div class="modalcard" role="dialog" aria-modal="true" style="width:min(460px,94vw)">
+      <header class="mhead">
+        <div class="mtitle"><span class="mcoinbig" id="tmTitle">—</span></div>
+        <button class="mclose" onclick="closeTrade()" aria-label="Close">✕</button>
+      </header>
+      <div class="tgrid" id="tmBody"></div>
+    </div>
+  </div>
 <script>
 let WALLETS = [
   { addr: "0x0c349d9b92fbd172bbb5a17a9db0a673a6a10ad3", label: "Wallet 1", copied: true },
@@ -323,6 +375,10 @@ let walletsSig = "";
 
 // ====== YOUR OWN WALLET — paste your Hyperliquid address here ======
 let MY_WALLET = "0x2a62f939cd2E36293c9e1ef73FdCA33daC8bcf95";
+// Hyperliquid doesn't report leverage for CLOSED trades, so for your own
+// closed trades ROE = Return% × this leverage (used only when the asset
+// isn't currently open). Change it to match how you usually trade.
+let MY_DEFAULT_LEV = 10;
 // ==================================================================
 
 const STRUCT_MS = 20000;
@@ -484,38 +540,237 @@ async function getOpenDatesCached(addr) {
 async function getClosedTrades(addr) {
   try {
     const fills = await post({ type: "userFills", user: addr });
+    // group per coin and walk chronologically so we can pair each close with the
+    // time its position cycle was opened (Hyperliquid fills carry no open date directly).
+    const grp = {};
+    for (const f of fills || []) { const c = f.coin || ""; const bare = c.includes(":") ? c.split(":")[1] : c; (grp[bare] = grp[bare] || []).push(f); }
     const out = [];
-    for (const f of fills || []) {
-      const cp = parseFloat(f.closedPnl || 0);
-      if (!cp) continue;                       // only realized (closing) fills
-      const c = f.coin || "", bare = c.includes(":") ? c.split(":")[1] : c;
-      const px = parseFloat(f.px || 0), sz = Math.abs(parseFloat(f.sz || 0)), fee = parseFloat(f.fee || 0);
-      const dir = String(f.dir || "");
-      const side = dir.includes("Long") ? "LONG" : dir.includes("Short") ? "SHORT" : (f.side === "A" ? "LONG" : "SHORT");
-      const notional = px * sz;
-      out.push({ coin: bare, side, pnl: cp - fee, pct: notional > 0 ? (cp / notional) * 100 : 0, time: f.time });
+    for (const coin in grp) {
+      const arr = grp[coin].sort((a, b) => a.time - b.time);
+      let openT = null, openPx = 0;
+      for (const f of arr) {
+        const start = parseFloat(f.startPosition || 0), sz = parseFloat(f.sz || 0);
+        const after = start + (f.side === "B" ? sz : -sz);
+        if (Math.abs(start) < 1e-9 && Math.abs(after) > 1e-9) { openT = f.time; openPx = parseFloat(f.px || 0); }   // cycle opened here
+        const cp = parseFloat(f.closedPnl || 0);
+        if (cp) {                                                               // realized (closing) fill
+          const px = parseFloat(f.px || 0), asz = Math.abs(sz), fee = parseFloat(f.fee || 0);
+          const dir = String(f.dir || "");
+          const side = dir.includes("Long") ? "LONG" : dir.includes("Short") ? "SHORT" : (f.side === "A" ? "LONG" : "SHORT");
+          const notional = px * asz;
+          out.push({ coin, side, pnl: cp - fee, pct: notional > 0 ? (cp / notional) * 100 : 0, entry: openPx, exit: px, time: f.time, opened: openT });
+        }
+        if (Math.abs(after) < 1e-9) { openT = null; openPx = 0; }              // back to flat
+      }
     }
     out.sort((a, b) => b.time - a.time);
-    return out.slice(0, 30);
+    return out.slice(0, 60);
   } catch (e) { return []; }
 }
 let myClosed = [];
+const CLOSED_FROM = new Date(2026, 5, 13).getTime();   // only show my trades closed on/after 13 Jun 2026
 async function fetchMyClosed() {
   if (!MY_SET) return;
-  myClosed = await getClosedTrades(MY_WALLET);
+  myClosed = (await getClosedTrades(MY_WALLET)).filter((t) => t.time >= CLOSED_FROM);
   renderMyClosed();
 }
+// Compact closed-trade card (fits the 300px side panels — no horizontal scroll).
+// Shows all six fields: Opened · Asset · Side · Lev · PnL · ROE.
+function closedCardHtml(t, clickAttr) {
+  const sc = t.side === "LONG" ? "long" : "short";
+  const roeTxt = t.roe == null ? "—" : (t.roe >= 0 ? "+" : "") + (t.roe * 100).toFixed(1) + "%";
+  return `<div class="ctrade" ${clickAttr || ""}>
+    <div class="ctrow">
+      <span class="ctl"><span class="ctmini ${sc}">${t.side}</span>${liqDot(t.coin)}<span class="ctcoin">${esc(t.coin)}</span>${t.lev ? `<span class="ctlev">${esc(t.lev)}×</span>` : ""}</span>
+      <span class="ctdate">${t.opened ? fmtDate(t.opened) : "—"}</span>
+    </div>
+    <div class="ctrow ctsub">
+      <span class="ctpnl ${t.pnl >= 0 ? "pos" : "neg"}">${fmtSignedC(t.pnl)}</span>
+      <span class="ctpct ${(t.roe || 0) >= 0 ? "pos" : "neg"}">${roeTxt}</span>
+    </div>
+  </div>`;
+}
+let lastBotStatus = null, botMyClosed = null;   // botMyClosed: exact bot-logged trades (real leverage)
+let myClosedShown = [], botClosedShown = [], botPosShown = [];   // currently-rendered rows (for the detail popup)
+
+/* ---------- trade detail popup ---------- */
+const _peakCache = {};   // reconstructed peak ROE per closed trade
+let _peakReq = 0;
+// Reconstruct the highest ROE a closed trade reached, from Hyperliquid candles:
+// best favourable price (high for LONG, low for SHORT) between open & close × leverage.
+async function reconstructPeak(d) {
+  if (!(d.entry > 0) || !d.opened || !d.closed || !d.side || !d.lev) return null;
+  const key = d.coin + "|" + d.opened + "|" + d.closed + "|" + d.entry + "|" + d.lev;
+  if (key in _peakCache) return _peakCache[key];
+  const span = d.closed - d.opened;
+  const ivs = [["1m", 60000], ["5m", 300000], ["15m", 900000], ["1h", 3600000], ["4h", 14400000], ["1d", 86400000]];
+  let iv = ivs[ivs.length - 1];
+  for (const it of ivs) { if (span / it[1] <= 500) { iv = it; break; } }   // keep candle count sane
+  const coins = [d.coin, d.rawCoin].filter((c, i, a) => c && a.indexOf(c) === i);   // try bare, then dex-prefixed
+  let best = null;
+  for (const cn of coins) {
+    try {
+      const c = await post({ type: "candleSnapshot", req: { coin: cn, interval: iv[0], startTime: d.opened - iv[1], endTime: d.closed + iv[1] } });
+      const arr = Array.isArray(c) ? c : [];
+      if (!arr.length) continue;
+      for (const k of arr) {
+        const t = +k.t;
+        if (t + iv[1] <= d.opened || t >= d.closed) continue;   // candle overlaps the trade window
+        const fav = d.side === "LONG" ? parseFloat(k.h) : parseFloat(k.l);
+        if (!isFinite(fav)) continue;
+        const exc = d.side === "LONG" ? (fav - d.entry) / d.entry : (d.entry - fav) / d.entry;
+        if (best == null || exc > best) best = exc;
+      }
+      if (best != null) break;
+    } catch (e) { /* try next coin form */ }
+  }
+  const peak = best == null ? null : best * d.lev;
+  _peakCache[key] = peak;
+  return peak;
+}
+function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+// Take-profit display: "price · +X% ROE · +$Y". From a known TP price OR a TP ROE.
+function tpInfo(d, tpPx, tpRoe) {
+  if (!(d.entry > 0) || !d.lev) return null;
+  let px, roe;
+  if (tpPx > 0) { px = tpPx; const mv = d.side === "LONG" ? (px - d.entry) / d.entry : (d.entry - px) / d.entry; roe = mv * d.lev; }
+  else if (tpRoe != null) { roe = tpRoe; const mv = roe / d.lev; px = d.side === "LONG" ? d.entry * (1 + mv) : d.entry * (1 - mv); }
+  else return null;
+  const profit = d.margin != null ? roe * d.margin : null;
+  return `${fmtPrice(px)} · ${pctSpan(roe * 100)}${profit != null ? " · " + pnlSpan(profit) : ""}`;
+}
+// Find the TP trigger price a wallet has set for a coin (Hyperliquid trigger order).
+async function fetchTp(addr, coin) {
+  try {
+    const o = await post({ type: "frontendOpenOrders", user: addr });
+    for (const x of (Array.isArray(o) ? o : [])) {
+      const c = x.coin || "", bare = c.includes(":") ? c.split(":")[1] : c;
+      if (bare !== coin) continue;
+      const ot = String(x.orderType || "").toLowerCase();
+      if (ot.includes("take profit") || x.tpsl === "tp") {
+        const px = parseFloat(x.triggerPx || x.limitPx || 0);
+        if (px > 0) return px;
+      }
+    }
+  } catch (e) { /* ignore */ }
+  return null;
+}
+function fmtDateTime(ts) { if (!ts) return null; const d = new Date(ts), p = (n) => String(n).padStart(2, "0"); return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; }
+function pnlSpan(v) { return `<span class="${v >= 0 ? "pos" : "neg"}">${fmtSignedC(v)}</span>`; }
+function pctSpan(v) { return `<span class="${v >= 0 ? "pos" : "neg"}">${(v >= 0 ? "+" : "") + v.toFixed(2)}%</span>`; }
+function openTradeModal(d) {
+  const sc = d.side === "LONG" ? "long" : "short";
+  // Take-Profit: known directly for bot copies (d.tp = ROE); for your / tracked
+  // open positions, fetch the live TP trigger order from Hyperliquid.
+  const tpSync = d.tp != null ? tpInfo(d, null, d.tp) : null;
+  const tpPending = !tpSync && d.tpAddr && d.coin && d.entry > 0 && d.lev && !d.closed;
+  const tpCell = tpSync || (tpPending ? `<span id="tmTp" style="color:var(--muted)">lade…</span>` : null);
+  const F = [
+    ["Source", d.src],
+    ["Type", d.kind],
+    ["Side", d.side ? `<span class="side ${sc}">${d.side}</span>` : null],
+    ["Leverage", d.lev != null ? esc(d.lev) + "×" : null],
+    ["Margin mode", d.mode ? cap(d.mode) : null],
+    ["Entry price", d.entry ? fmtPrice(d.entry) : null],
+    ["Mark price", d.mark ? fmtPrice(d.mark) : null],
+    ["Exit price", d.exit ? fmtPrice(d.exit) : null],
+    ["Liq. price", d.liq ? fmtPrice(d.liq) : null],
+    ["Take-Profit", tpCell],
+    ["Size", d.size != null ? (Math.round(d.size * 1e6) / 1e6) : null],
+    ["Position value", d.value != null ? fmtUsdC(d.value) : null],
+    ["Margin", d.margin != null ? fmtUsdC(d.margin) : null],
+    ["PnL", d.pnl != null ? pnlSpan(d.pnl) : null],
+    ["ROE", d.roe != null ? pctSpan(d.roe * 100) : null],
+    ["Return % (price)", d.returnPct != null ? pctSpan(d.returnPct) : null],
+    ["Opened", fmtDateTime(d.opened)],
+    ["Closed", fmtDateTime(d.closed)],
+    ["Reason", d.reason || null],
+  ];
+  // Peak ROE: live value if the bot tracked it; otherwise reconstruct from candles.
+  const myReq = ++_peakReq;
+  const canRebuild = d.peak == null && d.closed && d.entry > 0 && d.opened && d.side && d.lev;
+  const peakVal = d.peak != null ? pctSpan(d.peak * 100) : (canRebuild ? `<span id="tmPeak" style="color:var(--muted)">berechne…</span>` : null);
+  F.push(["Peak ROE (Höchststand)", peakVal]);
+  const rowsHtml = F.filter((f) => f[1] != null && f[1] !== "").map((f) => `<div class="trow"><span class="tk">${f[0]}</span><span class="tv">${f[1]}</span></div>`).join("");
+  document.getElementById("tmTitle").innerHTML = `${liqDot(d.coin)}${esc(d.coin || "Trade")}${d.lev != null ? ` <span class="chip">${esc(d.lev)}×</span>` : ""}`;
+  document.getElementById("tmBody").innerHTML = rowsHtml;
+  const m = document.getElementById("tradeModal");
+  m.style.display = "flex"; m.setAttribute("aria-hidden", "false");
+  if (canRebuild) reconstructPeak(d).then((peak) => {
+    if (myReq !== _peakReq) return;                 // a newer popup opened
+    const el = document.getElementById("tmPeak"); if (!el) return;
+    el.outerHTML = peak == null ? "n/a" : pctSpan(peak * 100);
+  });
+  if (tpPending) fetchTp(d.tpAddr, d.coin).then((px) => {
+    if (myReq !== _peakReq) return;
+    const el = document.getElementById("tmTp"); if (!el) return;
+    el.outerHTML = px > 0 ? tpInfo(d, px, null) : "kein TP gesetzt";
+  });
+}
+function closeTrade() { const m = document.getElementById("tradeModal"); m.style.display = "none"; m.setAttribute("aria-hidden", "true"); }
+function openClosed(srcKey, i) { const arr = srcKey === "my" ? myClosedShown : botClosedShown; const d = arr && arr[i]; if (d) openTradeModal(d); }
+function openPos(i) {
+  const p = POS[i]; if (!p) return;
+  const mark = markFor(p), value = Math.abs(p.szi) * mark, upnl = p.szi * (mark - p.entry), roe = p.margin > 0 ? upnl / p.margin : 0;
+  const w = (lastStructData && lastStructData[p.wi]) || null;
+  openTradeModal({
+    src: "Open position" + (w ? " · " + w.label : ""),
+    coin: p.coin, kind: p.kind, side: p.side, lev: p.levNum || null, mode: p.mode,
+    entry: p.entry, mark, liq: p.liq, size: Math.abs(p.szi), value, margin: p.margin,
+    pnl: upnl, roe, opened: p.opened, tpAddr: w ? w.addr : null,
+  });
+}
+function openMyPos(i) {
+  const p = MYPOS[i]; if (!p) return;
+  const mark = markFor(p), value = Math.abs(p.szi) * mark, upnl = p.szi * (mark - p.entry), roe = p.margin > 0 ? upnl / p.margin : 0;
+  openTradeModal({
+    src: "My open position",
+    coin: p.coin, kind: p.kind, side: p.side, lev: p.levNum || null, mode: p.mode,
+    entry: p.entry, mark, liq: p.liq, size: Math.abs(p.szi), value, margin: p.margin,
+    pnl: upnl, roe, opened: p.opened, tpAddr: MY_ADDR,
+  });
+}
+function openBotPos(i) {
+  const p = botPosShown[i]; if (!p) return;
+  // paper liquidation = full margin lost = -1/lev price move (no maintenance margin)
+  const liq = (p.entry > 0 && p.lev) ? (p.side === "LONG" ? p.entry * (1 - 1 / p.lev) : p.entry * (1 + 1 / p.lev)) : null;
+  openTradeModal({
+    src: "Copy-Bot position (paper)",
+    coin: p.bare || p.coin, kind: p.kind, side: p.side, lev: p.lev, mode: p.mode,
+    entry: p.entry, mark: p.mark, liq, tp: p.tp, size: Math.abs(p.sz), value: Math.abs(p.sz) * (p.mark || 0),
+    margin: p.margin, pnl: p.upnl, roe: p.roe, peak: p.peak_roe, opened: p.opened,
+  });
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeTrade(); });
 function renderMyClosed() {
   const el = document.getElementById("myClosed"); if (!el) return;
   if (!MY_SET) { el.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span></header><div class="state small">—</div>`; return; }
-  const rows = myClosed.length
-    ? myClosed.map((t) => closedRowHtml(t.coin, t.side, t.pnl, t.pct, t.time)).join("")
-    : `<div class="state small">No closed trades found.</div>`;
-  const realized = myClosed.reduce((a, t) => a + t.pnl, 0);
-  const wins = myClosed.filter((t) => t.pnl > 0).length;
-  const wr = myClosed.length ? Math.round(100 * wins / myClosed.length) : 0;
-  const meta = myClosed.length ? `${myClosed.length} · <span class="${realized >= 0 ? "pos" : "neg"}">${fmtSigned(realized)}</span> · ${wr}% W` : "";
-  el.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span><span class="meta">${meta}</span></header><div class="pbody">${rows}</div>`;
+  // Exact rows the bot logged server-side (real leverage/ROE), filtered to >= 13.06.
+  const botRows = (botMyClosed || [])
+    .filter((t) => (t.closed_ms || 0) >= CLOSED_FROM)
+    .map((t) => ({ opened: t.opened_ms, closed: t.closed_ms, coin: t.bare || t.coin, rawCoin: t.coin, kind: t.kind,
+                   side: t.side, lev: t.lev, mode: t.mode, entry: t.entry, exit: t.exit,
+                   margin: t.margin, pnl: t.pnl, roe: t.roe == null ? null : t.roe,
+                   peak: t.peak_roe, reason: t.reason, ts: t.closed_ms, src: "Bot-logged (exact)" }));
+  // Estimate from Hyperliquid fills for older trades the bot didn't witness. Leverage
+  // isn't in closed fills, so use the real leverage if the asset is still open, else
+  // MY_DEFAULT_LEV. Drop any trade the bot already logged (same coin within 30s).
+  const levMap = {}; for (const p of MYPOS || []) if (p.levNum) levMap[p.coin] = p.levNum;
+  const cliRows = myClosed
+    .map((t) => { const realLev = levMap[t.coin]; const lev = realLev || MY_DEFAULT_LEV;
+                  return { opened: t.opened, closed: t.time, coin: t.coin, side: t.side, lev,
+                           entry: t.entry, exit: t.exit, pnl: t.pnl, roe: lev ? (t.pct / 100) * lev : null,
+                           returnPct: t.pct, ts: t.time,
+                           src: realLev ? "Fills (real lev)" : "Fills (est. " + MY_DEFAULT_LEV + "×)" }; })
+    .filter((c) => !botRows.some((b) => b.coin === c.coin && Math.abs((b.ts || 0) - (c.ts || 0)) < 30000));
+  const rows = botRows.concat(cliRows).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  myClosedShown = rows;
+  const body = rows.length ? rows.map((t, i) => closedCardHtml(t, `role="button" tabindex="0" onclick="openClosed('my',${i})"`)).join("") : `<div class="state small">No closed trades since 13.06.</div>`;
+  const realized = rows.reduce((a, t) => a + t.pnl, 0);
+  const wins = rows.filter((t) => t.pnl > 0).length;
+  const wr = rows.length ? Math.round(100 * wins / rows.length) : 0;
+  const meta = rows.length ? `${rows.length} · <span class="${realized >= 0 ? "pos" : "neg"}">${fmtSigned(realized)}</span> · ${wr}% W` : "";
+  el.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span><span class="meta">${meta}</span></header><div class="pbody">${body}</div>`;
 }
 
 async function fetchMarks() {
@@ -531,6 +786,197 @@ function markFor(p) {
   const v = marks[p.coin] != null ? marks[p.coin] : marks[p.dex + ":" + p.coin];
   const mk = parseFloat(v);
   return isFinite(mk) && mk > 0 ? mk : p.baseMark;
+}
+// Liquidity grade per coin from 24h volume — to flag which coins are (un)safe to trade.
+function liqTier(coin) {
+  if (!coin) return null;
+  const mk = mkt[coin];
+  if (mk && mk.vol != null) {
+    const v = mk.vol;
+    if (v >= 50e6) return { c: "hi", t: "Hohe Liquidität · 24h-Vol $" + fmtUsd(v) + " — gut handelbar" };
+    if (v >= 5e6) return { c: "mid", t: "Mittlere Liquidität · 24h-Vol $" + fmtUsd(v) + " — mit Vorsicht" };
+    return { c: "lo", t: "Geringe Liquidität · 24h-Vol $" + fmtUsd(v) + " — besser meiden (enge Liquidation, Slippage)" };
+  }
+  if (mktCount > 0) return { c: "unk", t: "Nicht im Haupt-Perp-Markt — meist geringe Liquidität, Vorsicht" };
+  return null;   // market data not loaded yet
+}
+function liqDot(coin) {
+  const t = liqTier(coin); if (!t) return "";
+  return `<span class="liqdot ${t.c}" title="${esc(t.t)}"></span>`;
+}
+
+/* ---------- copy backtest: replay the copied whale's last 30d with my strategy ---------- */
+let backtestRunning = false;
+function btInterval(span) {
+  const ivs = [["1m", 60000], ["5m", 300000], ["15m", 900000], ["1h", 3600000], ["4h", 14400000], ["1d", 86400000]];
+  for (const it of ivs) { if (span / it[1] <= 4500) return it; }
+  return ivs[ivs.length - 1];
+}
+async function btCandles(coin, rawCoin, from, to, ivName) {
+  const coins = [coin, rawCoin].filter((c, i, a) => c && a.indexOf(c) === i);
+  for (const cn of coins) {
+    try {
+      const c = await post({ type: "candleSnapshot", req: { coin: cn, interval: ivName, startTime: from, endTime: to } });
+      const arr = Array.isArray(c) ? c : [];
+      if (arr.length) { arr.sort((a, b) => (+a.t) - (+b.t)); return arr; }
+    } catch (e) { /* try next */ }
+  }
+  return [];
+}
+function btBuildCycles(fills, from, now) {        // pair fills into position cycles (new open -> close only)
+  const grp = {};
+  for (const f of fills || []) { const c = f.coin || "", bare = c.includes(":") ? c.split(":")[1] : c; (grp[bare] = grp[bare] || []).push(f); }
+  const cycles = [];
+  for (const coin in grp) {
+    const arr = grp[coin].sort((a, b) => a.time - b.time);
+    let runPos = 0, openT = null, openPx = 0, side = null, rawCoin = null;
+    for (const f of arr) {
+      const sz = parseFloat(f.sz || 0), px = parseFloat(f.px || 0);
+      const delta = f.side === "B" ? sz : -sz;
+      const prev = runPos;
+      runPos += delta;
+      // NEW open only: position was flat, now non-flat (not a scale-in / Nachkauf)
+      if (Math.abs(prev) < 1e-9 && Math.abs(runPos) > 1e-9) {
+        openT = f.time; openPx = px; side = runPos > 0 ? "LONG" : "SHORT"; rawCoin = f.coin || coin;
+      }
+      // Full close: position back to flat
+      if (Math.abs(prev) > 1e-9 && Math.abs(runPos) < 1e-9 && openT != null) {
+        cycles.push({ coin, rawCoin, side, entry: openPx, openT, closeT: f.time, exitPx: px });
+        openT = null;
+      }
+    }
+    if (openT != null) {                          // whale still in position at window end
+      const mk = (mkt[coin] && mkt[coin].price) || openPx;
+      cycles.push({ coin, rawCoin, side, entry: openPx, openT, closeT: now, exitPx: mk, stillOpen: true });
+    }
+  }
+  return cycles.filter((cy) => cy.openT >= from && cy.entry > 0);
+}
+function btCycleExit(cy, candles, tp, lev, now) { // OUR exit: TP, liq, or follow whale's close
+  const tpPx  = cy.side === "LONG" ? cy.entry * (1 + tp / lev)  : cy.entry * (1 - tp / lev);
+  const liqPx = cy.side === "LONG" ? cy.entry * (1 - 1 / lev)   : cy.entry * (1 + 1 / lev);
+  // closed by whale → only scan up to his close; still open → scan to now
+  const scanEnd = cy.stillOpen ? (now || Date.now()) : cy.closeT;
+  for (const k of candles) {
+    const t = +k.t;
+    if (t < cy.openT || t > scanEnd) continue;
+    const hi = parseFloat(k.h), lo = parseFloat(k.l);
+    if (cy.side === "LONG") {
+      if (lo <= liqPx) return { t, px: liqPx, reason: "liq" };
+      if (hi >= tpPx)  return { t, px: tpPx,  reason: "tp"  };
+    } else {
+      if (hi >= liqPx) return { t, px: liqPx, reason: "liq" };
+      if (lo <= tpPx)  return { t, px: tpPx,  reason: "tp"  };
+    }
+  }
+  // no TP/liq hit within the window
+  if (cy.stillOpen) {
+    const mk = (mkt[cy.coin] && mkt[cy.coin].price) || cy.exitPx;
+    return { t: now || Date.now(), px: mk, reason: "open" };
+  }
+  // whale closed without triggering our targets → follow his exit
+  return { t: cy.closeT, px: cy.exitPx, reason: "whale" };
+}
+async function btFetchFills(addr, from, now) {   // paginate userFillsByTime to get the FULL window (>2000 fills)
+  let all = [], cursor = from, guard = 0;
+  while (guard++ < 40) {
+    let batch;
+    try { batch = await post({ type: "userFillsByTime", user: addr, startTime: cursor, endTime: now }); }
+    catch (e) { break; }                         // network/HTTP error on a page: use what we have
+    if (!batch || batch.error || !Array.isArray(batch)) break;
+    if (!batch.length) break;
+    all = all.concat(batch);
+    if (batch.length < 2000) break;
+    const lastT = Math.max.apply(null, batch.map((f) => f.time));
+    if (!(lastT > cursor)) break;                // no forward progress -> stop
+    cursor = lastT + 1;
+    await new Promise((r) => setTimeout(r, 120)); // brief pause to avoid rate-limit
+  }
+  // fall back to legacy userFills if pagination returned nothing at all
+  if (!all.length) {
+    try { const fb = await post({ type: "userFills", user: addr }); if (Array.isArray(fb)) all = fb; } catch (e) { /**/ }
+  }
+  const seen = new Set(), out = [];
+  for (const f of all) { const k = f.time + "|" + (f.hash || f.oid || f.tid || ""); if (seen.has(k)) continue; seen.add(k); out.push(f); }
+  return out.filter((f) => f.time >= from && f.time <= now);
+}
+async function backtest(addr, tp, lev, start) {
+  const FRAC = 0.20, MAXPOS = 5;
+  const now = Date.now(), from = now - 30 * 86400000;
+  const fills = await btFetchFills(addr, from, now);
+  let cycles = btBuildCycles(fills, from, now).sort((a, b) => a.openT - b.openT);
+  const cyclesN = cycles.length, fillsN = fills.length;
+  const iv = btInterval(now - from), byCoin = {};
+  const uniq = Array.from(new Set(cycles.map((c) => c.coin)));
+  await Promise.all(uniq.map(async (coin) => {
+    const cy = cycles.find((c) => c.coin === coin);
+    byCoin[coin] = await btCandles(coin, cy ? cy.rawCoin : null, from - iv[1], now, iv[0]);
+  }));
+  for (const cy of cycles) cy.exit = btCycleExit(cy, byCoin[cy.coin] || [], tp, lev, now);
+  // event-driven equity simulation (compounding + 5-slot cap)
+  let equity = start, peakEq = start, maxDD = 0, wins = 0, losses = 0, count = 0, tpHits = 0, liqs = 0, whaleExits = 0, stillOpen = 0;
+  let open = [];
+  // track which whale cycle ID is currently "active" per coin — no re-entry until whale opens a brand new one
+  const activeCycle = {};
+  const settle = (untilT) => {
+    open.sort((a, b) => a.exitT - b.exitT);
+    while (open.length && open[0].exitT <= untilT) {
+      const tr = open.shift(); equity += tr.pnl;
+      if (tr.onSettle) tr.onSettle();
+      if (tr.pnl > 0) wins++; else losses++;
+      peakEq = Math.max(peakEq, equity); maxDD = Math.max(maxDD, peakEq > 0 ? (peakEq - equity) / peakEq : 0);
+    }
+  };
+  for (let i = 0; i < cycles.length; i++) {
+    const cy = cycles[i];
+    settle(cy.openT);
+    // skip if we already entered this whale cycle (TP hit earlier, but whale didn't open a new one)
+    if (activeCycle[cy.coin] === i) continue;
+    if (open.length >= MAXPOS) continue;
+    const margin = equity * FRAC; if (margin <= 0) continue;
+    activeCycle[cy.coin] = i;                    // lock this coin to this cycle
+    const size = margin * lev / cy.entry, sign = cy.side === "LONG" ? 1 : -1;
+    let pnl = cy.exit.reason === "liq" ? -margin : sign * size * (cy.exit.px - cy.entry);
+    if (pnl < -margin) pnl = -margin;
+    if (cy.exit.reason === "tp") tpHits++; else if (cy.exit.reason === "liq") liqs++; else if (cy.exit.reason === "open") stillOpen++; else whaleExits++;
+    // when our trade exits, release the coin lock (whale may re-open it later as a new cycle)
+    open.push({ exitT: cy.exit.t, pnl, coin: cy.coin, cycleIdx: i,
+      onSettle: () => { if (activeCycle[cy.coin] === i) delete activeCycle[cy.coin]; } });
+    count++;
+  }
+  settle(Infinity);
+  return { equity, pnl: equity - start, pct: start > 0 ? (equity - start) / start * 100 : 0, count, wins, losses, maxDD, tpHits, liqs, whaleExits, stillOpen, fillsN, cyclesN, lev };
+}
+function renderBacktest(r, addr) {
+  const out = document.getElementById("btResult"); if (!out) return;
+  const pos = r.pnl >= 0;
+  const who = addr ? `<a class="waddr" href="https://hypurrscan.io/address/${addr}" target="_blank" rel="noopener">${addr.slice(0, 6)}…${addr.slice(-4)}</a>` : "";
+  out.innerHTML = `
+    <div class="hero"><span class="herolabel">Result · 30 days ${who}</span><span class="heroval num ${pos ? "pos" : "neg"}">${fmtSignedC(r.pnl)}</span></div>
+    <div class="statrow"><span>Return</span><span class="num ${pos ? "pos" : "neg"}">${(r.pct >= 0 ? "+" : "") + r.pct.toFixed(1)}%</span></div>
+    <div class="statrow"><span>End balance</span><span class="num">${fmtUsdC(r.equity)}</span></div>
+    <div class="statrow"><span>Trades</span><span class="num">${r.count}</span></div>
+    <div class="statrow"><span>Win rate</span><span class="num">${r.count ? Math.round(100 * r.wins / r.count) : 0}% · ${r.wins}W / ${r.losses}L</span></div>
+    <div class="statrow"><span>Max drawdown</span><span class="num neg">-${(r.maxDD * 100).toFixed(1)}%</span></div>
+    <div class="statrow" title="TP-Treffer · Liquidationen · Whale-Exit (kein TP/Liq) · Noch offen (Whale hält noch)"><span>TP · Liq · Whale-Exit · Offen</span><span class="num">${r.tpHits} · ${r.liqs} · ${r.whaleExits} · ${r.stillOpen}</span></div>
+    <div class="statrow" title="rohe Fills aus der API · daraus erkannte Trades (30d)"><span>Fills · erkannte Trades</span><span class="num">${r.fillsN} · ${r.cyclesN}</span></div>
+    <div class="setnote">Annahmen: Entry = Whale-Entry, ${r.lev}× Hebel, 20% Margin/Trade, max 5 gleichzeitig. Exit = eigener TP/Liq (unabhängig vom Whale-Exit). Gebühren, Funding & Kill-Switch nicht modelliert → Näherung.</div>`;
+}
+async function runBacktest() {
+  if (backtestRunning) return;
+  const out = document.getElementById("btResult");
+  const tp = parseFloat((document.getElementById("btTp") || {}).value) / 100;
+  const lev = parseFloat((document.getElementById("btLev") || {}).value) || 6;
+  const start = parseFloat((document.getElementById("btStart") || {}).value);
+  if (!(tp > 0) || !(start > 0) || !(lev > 0)) { if (out) out.innerHTML = `<div class="setnote err">Bitte gültige Werte eingeben.</div>`; return; }
+  let addr = (((document.getElementById("btAddr") || {}).value) || "").trim();
+  if (!addr) { const cw = (WALLETS || []).find((w) => w.copied); addr = cw ? cw.addr : ""; }
+  if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) { if (out) out.innerHTML = `<div class="setnote err">Bitte eine gültige Wallet-Adresse (0x…) eingeben.</div>`; return; }
+  backtestRunning = true;
+  if (out) out.innerHTML = `<div class="state small">Backtest läuft für ${addr.slice(0, 6)}…${addr.slice(-4)} — Trades &amp; Candles werden geladen.</div>`;
+  try { renderBacktest(await backtest(addr, tp, lev, start), addr); }
+  catch (e) { console.error("backtest error", e); if (out) out.innerHTML = `<div class="setnote err">Backtest fehlgeschlagen: ${e && e.message ? e.message : e}. Nochmal versuchen.</div>`; }
+  backtestRunning = false;
 }
 
 /* ---------- format ---------- */
@@ -567,9 +1013,66 @@ function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 function setCell(el, text) { if (!el || el.textContent === text) return; el.textContent = text; el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash"); }
 function setPnl(el, val) { if (!el) return; el.classList.toggle("pos", val >= 0); el.classList.toggle("neg", val < 0); setCell(el.querySelector(".v"), fmtSigned(val)); }
 
+/* ---------- reorderable table columns (drag headers; order saved in localStorage) ---------- */
+const POS_STORE = "hlPosCols";
+const POS_COLS = [
+  { key: "opened", label: "Opened", lft: true, cell: (p) => `<td class="num odate lft">${fmtDate(p.opened)}</td>` },
+  { key: "asset", label: "Asset", lft: true, cell: (p) => `<td class="asset lft">${liqDot(p.coin)}<span class="coin">${esc(p.coin)}</span><span class="chip ${p.kind === "Stock" ? "stock" : "crypto"}">${p.kind}</span></td>` },
+  { key: "side", label: "Side", cell: (p) => `<td><span class="side ${p.side === "LONG" ? "long" : "short"}">${p.side}</span></td>` },
+  { key: "size", label: "Size", cell: (p) => `<td class="num c-val" data-i="${p._i}">—</td>` },
+  { key: "entry", label: "Entry", cell: (p) => `<td class="num">${fmtPrice(p.entry)}</td>` },
+  { key: "mark", label: "Mark", cell: (p) => `<td class="num c-mark" data-i="${p._i}">—</td>` },
+  { key: "liq", label: "Liq", cell: (p) => `<td class="num liq">${fmtPrice(p.liq)}</td>` },
+  { key: "lev", label: "Lev", cell: (p) => `<td class="num">${esc(p.lev)}</td>` },
+  { key: "mode", label: "Mode", cell: (p) => `<td><span class="chip ${p.mode === "isolated" ? "iso" : "cross"}">${p.mode ? p.mode.charAt(0).toUpperCase() + p.mode.slice(1) : "—"}</span></td>` },
+  { key: "margin", label: "Margin", cell: (p) => `<td class="num">${fmtUsd(p.margin)}</td>` },
+  { key: "upnl", label: "uPnL", cell: (p) => `<td class="num c-pnl" data-i="${p._i}"><span class="v">—</span><span class="roe c-roe">—</span></td>` },
+];
+const COL_DEFS = { [POS_STORE]: POS_COLS };
+const COL_RERENDER = {};   // storeKey -> re-render fn (wired by each renderer)
+
+function loadColOrder(storeKey) {
+  const cols = COL_DEFS[storeKey], keys = cols.map((c) => c.key);
+  let order; try { order = JSON.parse(localStorage.getItem(storeKey) || "null"); } catch (e) { order = null; }
+  if (!Array.isArray(order)) order = [];
+  order = order.filter((k) => keys.includes(k));            // drop unknown/removed keys
+  for (const k of keys) if (!order.includes(k)) order.push(k);   // append any new columns
+  return order;
+}
+function orderedCols(storeKey) {
+  const byKey = {}; COL_DEFS[storeKey].forEach((c) => (byKey[c.key] = c));
+  return loadColOrder(storeKey).map((k) => byKey[k]);
+}
+function colHead(cols) {
+  return "<thead><tr>" + cols.map((c) =>
+    `<th class="drag-th${c.lft ? " lft" : ""}" draggable="true" data-key="${c.key}">${c.label}</th>`).join("") + "</tr></thead>";
+}
+function wireColDrag(root) {
+  root.querySelectorAll("table[data-cols] thead th.drag-th").forEach((th) => {
+    th.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", th.dataset.key); e.dataTransfer.effectAllowed = "move"; th.classList.add("dragging"); });
+    th.addEventListener("dragend", () => th.classList.remove("dragging"));
+    th.addEventListener("dragover", (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; th.classList.add("drop-target"); });
+    th.addEventListener("dragleave", () => th.classList.remove("drop-target"));
+    th.addEventListener("drop", (e) => {
+      e.preventDefault(); th.classList.remove("drop-target");
+      const storeKey = th.closest("table[data-cols]").dataset.cols;
+      const from = e.dataTransfer.getData("text/plain"), to = th.dataset.key;
+      if (!from || from === to) return;
+      let order = loadColOrder(storeKey).filter((k) => k !== from);
+      order.splice(order.indexOf(to), 0, from);   // drop dragged column before the target
+      try { localStorage.setItem(storeKey, JSON.stringify(order)); } catch (e2) {}
+      if (COL_RERENDER[storeKey]) COL_RERENDER[storeKey]();
+    });
+  });
+}
+
 /* ---------- render: tracked wallets ---------- */
+let lastStructData = [];
 function renderStructure(data) {
+  if (data) lastStructData = data; else data = lastStructData;
+  COL_RERENDER[POS_STORE] = () => renderStructure();
   POS = []; PANEL = {};
+  const cols = orderedCols(POS_STORE);
   let html = "";
   data.forEach((w, wi) => {
     const addrShort = w.addr.slice(0, 6) + "…" + w.addr.slice(-4);
@@ -578,29 +1081,19 @@ function renderStructure(data) {
     else if (!w.positions.length) body = `<div class="state">No open positions.</div>`;
     else {
       const rows = w.positions.map((p) => {
-        const i = POS.length; p.wi = wi; POS.push(p);
-        const sideCls = p.side === "LONG" ? "long" : "short", kindCls = p.kind === "Stock" ? "stock" : "crypto";
-        return `<tr>
-          <td class="num odate lft">${fmtDate(p.opened)}</td>
-          <td class="asset lft"><span class="coin">${esc(p.coin)}</span><span class="chip ${kindCls}">${p.kind}</span></td>
-          <td><span class="side ${sideCls}">${p.side}</span></td>
-          <td class="num c-val" data-i="${i}">—</td>
-          <td class="num">${fmtPrice(p.entry)}</td>
-          <td class="num liq">${fmtPrice(p.liq)}</td>
-          <td class="num">${esc(p.lev)}</td>
-          <td class="num">${fmtUsd(p.margin)}</td>
-          <td class="num c-pnl" data-i="${i}"><span class="v">—</span><span class="roe c-roe">—</span></td>
-        </tr>`;
+        const i = POS.length; p.wi = wi; p._i = i; POS.push(p);
+        return `<tr class="prow" onclick="openPos(${i})">${cols.map((c) => c.cell(p)).join("")}</tr>`;
       }).join("");
-      body = `<div class="tablewrap"><table>
-        <thead><tr><th class="lft">Opened</th><th class="lft">Asset</th><th>Side</th><th>Size</th><th>Entry</th><th>Liq</th><th>Lev</th><th>Margin</th><th>uPnL</th></tr></thead>
+      body = `<div class="tablewrap"><table data-cols="${POS_STORE}">${colHead(cols)}
         <tbody>${rows}</tbody></table></div>`;
     }
     html += `<section class="panel"><header class="phead"><div class="whead"><span class="wlabel">${esc(w.label)}</span>${w.copied ? '<span class="chip botchip">BOT</span>' : ''}<a class="waddr" href="https://hypurrscan.io/address/${w.addr}" target="_blank" rel="noopener">${addrShort}</a></div><div class="wright"><span class="meta" id="meta${wi}"></span><button class="xbtn" title="Stop tracking" onclick="delWallet('${w.addr}')">\u00d7</button></div></header>${body}</section>`;
   });
-  document.getElementById("app").innerHTML = html;
+  const app = document.getElementById("app");
+  app.innerHTML = html;
+  wireColDrag(app);
   const tc = document.getElementById("trackCount"); if (tc) tc.textContent = data.length + (data.length === 1 ? " wallet" : " wallets");
-  POS.forEach((p, i) => { p.cVal = document.querySelector(`.c-val[data-i="${i}"]`); const td = document.querySelector(`.c-pnl[data-i="${i}"]`); p.cPnl = td; p.cRoe = td ? td.querySelector(".c-roe") : null; });
+  POS.forEach((p, i) => { p.cVal = document.querySelector(`.c-val[data-i="${i}"]`); p.cMark = document.querySelector(`.c-mark[data-i="${i}"]`); const td = document.querySelector(`.c-pnl[data-i="${i}"]`); p.cPnl = td; p.cRoe = td ? td.querySelector(".c-roe") : null; });
   data.forEach((w, wi) => { PANEL[wi] = document.getElementById(`meta${wi}`); });
   tick();
 }
@@ -639,10 +1132,11 @@ function renderMine() {
     perf.innerHTML = `<header class="phead"><span class="wlabel">My Performance</span></header><div class="state small">—</div>`;
     return;
   }
-  const avgLev = MYPOS.length ? MYPOS.reduce((a, p) => a + (p.levNum || 0), 0) / MYPOS.length : 0;
+  const myLevs = MYPOS.map((p) => p.levNum).filter((v) => v > 0).concat((myClosedShown || []).map((t) => t.lev).filter((v) => v > 0));
+  const avgLev = myLevs.length ? myLevs.reduce((a, b) => a + b, 0) / myLevs.length : 0;
   const posList = MYPOS.length
-    ? MYPOS.map((p, i) => `<div class="mrow2"><span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
-        <div class="mtop"><span class="odate">${fmtDate(p.opened)}</span> <span class="mcoin">${esc(p.coin)}</span> <span class="mside ${p.side === "LONG" ? "long" : "short"}">${p.side}</span></div>
+    ? MYPOS.map((p, i) => `<div class="mrow2" role="button" tabindex="0" onclick="openMyPos(${i})"><span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+        <div class="mtop"><span class="odate">${fmtDate(p.opened)}</span> ${liqDot(p.coin)}<span class="mcoin">${esc(p.coin)}</span> <span class="mside ${p.side === "LONG" ? "long" : "short"}">${p.side}</span></div>
         <div class="mstats">
           <span>Size <b class="num c-msize" data-i="${i}">—</b></span>
           <span>Lev <b class="num">${esc(p.lev)}${p.mode ? " " + p.mode.charAt(0).toUpperCase() + p.mode.slice(1) : ""}</b></span>
@@ -659,7 +1153,7 @@ function renderMine() {
       <div class="statrow"><span>Unrealized PnL</span><span class="num c-mpnl"><span class="v">—</span></span></div>
       <div class="statrow" title="Funds not tied up in positions — free to withdraw or open new trades"><span>Free</span><span class="num">${fmtUsd(MYACC.withdrawable)}</span></div>
       <div class="statrow"><span>Open positions</span><span class="num">${MYPOS.length}</span></div>
-      <div class="statrow" title="Average leverage across your open positions"><span>Avg leverage</span><span class="num">${MYPOS.length ? avgLev.toFixed(1) + "\u00d7" : "—"}</span></div>
+      <div class="statrow" title="Average leverage across all your trades (open + closed)"><span>Avg leverage</span><span class="num">${myLevs.length ? avgLev.toFixed(1) + "\u00d7" : "—"}</span></div>
       <div class="mlist">${posList}</div>
     </div>`;
   const r = (label, val) => val == null
@@ -692,6 +1186,7 @@ function tick() {
   for (const p of POS) {
     const mark = markFor(p), value = Math.abs(p.szi) * mark, upnl = p.szi * (mark - p.entry), roe = p.margin > 0 ? upnl / p.margin : 0;
     setCell(p.cVal, fmtUsd(value)); setPnl(p.cPnl, upnl);
+    if (p.cMark) setCell(p.cMark, fmtPrice(mark));
     if (p.cRoe) p.cRoe.textContent = fmtPct(roe);
     const t = totals[p.wi] || (totals[p.wi] = { v: 0, p: 0, n: 0 }); t.v += value; t.p += upnl; t.n += 1;
   }
@@ -765,6 +1260,7 @@ async function pollBot() {
   } catch (e) {
     setLed("ledBot", false); setLed("ledTg", null);
     botSettingsReady = false; lastTgOn = null; botPosEmpty = false;
+    botMyClosed = null; renderMyClosed();   // bot offline -> fall back to the fills estimate
     const off = (id, title) => { const x = document.getElementById(id); if (x) { x.innerHTML = `<header class="phead"><span class="wlabel">${title}</span></header><div class="state small">\u2014</div>`; x.dataset.built = ""; } };
     const port = document.getElementById("botPortfolio");
     if (port) port.innerHTML = `<header class="phead"><span class="wlabel">Copy-Bot</span><span class="botbadge off">\u26aa Offline</span></header><div class="state small">Bot offline \u2014 appears as soon as the bot is running and serving this page.</div>`;
@@ -812,6 +1308,8 @@ function renderBot(s) {
   renderBotPerf(s);
   renderBotPositions(s);
   renderBotClosed(s);
+  botMyClosed = Array.isArray(s.my_closed) ? s.my_closed : null;
+  renderMyClosed();
   renderBotLog(s);
 }
 function renderBotPortfolio(s) {
@@ -820,7 +1318,8 @@ function renderBotPortfolio(s) {
   const pos = s.positions || [];
   const equity = s.equity || 0;
   const upnl = pos.reduce((a, p) => a + (p.upnl || 0), 0);
-  const avgLev = pos.length ? pos.reduce((a, p) => a + (p.lev || 0), 0) / pos.length : 0;
+  const botLevs = pos.map((p) => p.lev).filter((v) => v > 0).concat((s.closed || []).map((t) => t.lev).filter((v) => v > 0));
+  const avgLev = botLevs.length ? botLevs.reduce((a, b) => a + b, 0) / botLevs.length : 0;
   port.innerHTML = `<header class="phead"><span class="wlabel">Copy-Bot</span>${botBadgeHtml(s)}</header>
     <div class="pbody">
       <div class="hero"><span class="herolabel">Account Value (Paper)</span><span class="heroval num">${fmtUsdC(equity)}</span></div>
@@ -828,9 +1327,10 @@ function renderBotPortfolio(s) {
       <div class="statrow" title="Realized balance, not tied up in positions"><span>Cash (free)</span><span class="num">${fmtUsdC(s.cash != null ? s.cash : equity)}</span></div>
       <div class="statrow"><span>Daily PnL</span><span class="num ${(s.day_pnl || 0) >= 0 ? "pos" : "neg"}">${fmtSignedC(s.day_pnl || 0)}</span></div>
       <div class="statrow"><span>Open positions</span><span class="num">${s.slots_used || 0} / ${s.max_positions || 5}</span></div>
-      <div class="statrow"><span>Avg leverage</span><span class="num">${pos.length ? avgLev.toFixed(1) + "\u00d7" : "—"}</span></div>
+      <div class="statrow" title="Average leverage across all trades (open + closed)"><span>Avg leverage</span><span class="num">${botLevs.length ? avgLev.toFixed(1) + "\u00d7" : "—"}</span></div>
       <div class="botctrl">
         ${s.paused ? `<button class="btn" onclick="botCmd('resume')">\u25b6\ufe0f Resume</button>` : `<button class="btn" onclick="botCmd('pause')">\u23f8 Pause</button>`}
+        <button class="btn" title="Copy currently-open whale positions you don't hold yet, at the whale's entry price" onclick="botAdopt()">\u2795 Adopt open</button>
         <button class="btn danger" onclick="botFlatten()">\ud83e\uddf9 Close all</button>
       </div>
     </div>`;
@@ -850,23 +1350,21 @@ function renderBotTg(s) {
        <div class="setnote">You'll get a Telegram message on every open / close / TP.</div>`;
   el.innerHTML = `<header class="phead"><span class="wlabel">Notifications</span></header><div class="pbody">${body}</div>`;
 }
-function closedRowHtml(coin, side, pnl, pct, time) {
-  const sc = side === "LONG" ? "long" : "short";
-  return `<div class="ctrade">
-    <div class="ctleft"><span class="ctmini ${sc}">${side}</span><span class="ctcoin">${esc(coin)}</span><span class="ctdate">${fmtDate(time)}</span></div>
-    <div class="ctright"><span class="ctpnl ${pnl >= 0 ? "pos" : "neg"}">${fmtSignedC(pnl)}</span><span class="ctpct ${pct >= 0 ? "pos" : "neg"}">${(pct >= 0 ? "+" : "") + pct.toFixed(1)}%</span></div>
-  </div>`;
-}
 function renderBotClosed(s) {
   const el = document.getElementById("botClosed"); if (!el) return;
+  lastBotStatus = s;
   const closed = s.closed || [], st = s.closed_stats || { count: 0, realized: 0, win_rate: 0 };
-  const rows = closed.length
-    ? closed.map((t) => closedRowHtml(t.bare || t.coin, t.side, t.pnl, (t.roe || 0) * 100, t.closed_ms)).join("")
-    : `<div class="state small">No closed trades yet.</div>`;
+  const rows = closed.map((t) => ({
+    opened: t.opened_ms, closed: t.closed_ms, coin: t.bare || t.coin, rawCoin: t.coin, kind: t.kind, side: t.side,
+    lev: t.lev, mode: t.mode, entry: t.entry, exit: t.exit, margin: t.margin,
+    pnl: t.pnl, roe: t.roe == null ? null : t.roe, peak: t.peak_roe, reason: t.reason, src: "Copy-Bot (paper)",
+  }));
+  botClosedShown = rows;
+  const body = rows.length ? rows.map((t, i) => closedCardHtml(t, `role="button" tabindex="0" onclick="openClosed('bot',${i})"`)).join("") : `<div class="state small">No closed trades yet.</div>`;
   const meta = st.count
     ? `${st.count} · <span class="${st.realized >= 0 ? "pos" : "neg"}">${fmtSigned(st.realized)}</span> · ${st.win_rate}% W`
     : "";
-  el.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span><span class="meta">${meta}</span></header><div class="pbody">${rows}</div>`;
+  el.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span><span class="meta">${meta}</span></header><div class="pbody">${body}</div>`;
 }
 function renderBotLog(s) {
   const el = document.getElementById("botLog");
@@ -918,8 +1416,9 @@ function renderBotPositions(s) {
   botPosEmpty = false;
   const totV = pos.reduce((a, p) => a + Math.abs(p.sz) * (p.mark || 0), 0);
   const totP = pos.reduce((a, p) => a + (p.upnl || 0), 0);
-  const cards = pos.map((p) => `<div class="mrow2"><span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
-      <div class="mtop"><span class="odate">${fmtDate(p.opened)}</span> <span class="mcoin">${esc(p.bare)}</span> <span class="mside ${p.side === "LONG" ? "long" : "short"}">${p.side}</span></div>
+  botPosShown = pos;
+  const cards = pos.map((p, i) => `<div class="mrow2" role="button" tabindex="0" onclick="openBotPos(${i})"><span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+      <div class="mtop"><span class="odate">${fmtDate(p.opened)}</span> ${liqDot(p.bare)}<span class="mcoin">${esc(p.bare)}</span> <span class="mside ${p.side === "LONG" ? "long" : "short"}">${p.side}</span></div>
       <div class="mstats">
         <span>Size <b class="num">${fmtUsd(Math.abs(p.sz) * (p.mark || 0))}</b></span>
         <span>Lev <b class="num">${p.lev}\u00d7${p.mode ? " " + esc(p.mode.charAt(0).toUpperCase() + p.mode.slice(1)) : ""}</b></span>
@@ -934,6 +1433,7 @@ async function botCmd(cmd) {
   pollBot();
 }
 function botFlatten() { if (confirm("Close ALL positions?")) botCmd("flatten"); }
+function botAdopt() { if (confirm("Copy currently-open whale positions you don't hold yet, at the whale's entry price?")) botCmd("adopt"); }
 let botSettingsReady = false;
 function renderBotSettings(s) {
   const el = document.getElementById("botSettings");
@@ -944,6 +1444,14 @@ function renderBotSettings(s) {
   const st = s.tp_stock_pct != null ? s.tp_stock_pct : 20;
   el.innerHTML = `<header class="phead"><span class="wlabel">Copy-Bot Settings</span></header>
     <div class="pbody">
+      <div class="stratbox">
+        <div class="strathd">Strategy</div>
+        <div class="statrow"><span>Leverage</span><span class="num">${s.fixed_lev != null ? s.fixed_lev + "× (fix)" : "—"}</span></div>
+        <div class="statrow"><span>Size per trade</span><span class="num">${s.capital_pct != null ? s.capital_pct + "% equity" : "—"}</span></div>
+        <div class="statrow"><span>Max positions</span><span class="num">${s.max_positions || 5}</span></div>
+        <div class="statrow"><span>Daily kill-switch</span><span class="num">−${s.daily_loss_pct != null ? s.daily_loss_pct : 25}% realized</span></div>
+        <div class="statrow"><span>Take-Profit</span><span class="num">${c}% ROE</span></div>
+      </div>
       <div class="setrow"><label>Take-Profit · Crypto</label><span class="ingrp"><input id="tpCrypto" class="numin" type="number" min="1" max="1000" step="1" value="${c}"><span class="unit">% ROE</span></span></div>
       <div class="setrow"><label>Take-Profit · Stocks</label><span class="ingrp"><input id="tpStock" class="numin" type="number" min="1" max="1000" step="1" value="${st}"><span class="unit">% ROE</span></span></div>
       <button class="btn" onclick="saveTp()">\u2713 Apply</button>
