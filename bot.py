@@ -415,6 +415,7 @@ class Handler(BaseHTTPRequestHandler):
                 st["capital_pct"] = round(CAPITAL_FRACTION * 100, 1)
                 st["daily_loss_pct"] = round(DAILY_LOSS_LIMIT * 100, 1)
                 st["wallets"] = wallets_payload()
+                st["smart"] = STATE.get("smart", {})
                 st["log"] = STATE["log"][-60:]
             return self._send(200, json.dumps(st))
         return self._send(404, "not found", "text/plain")
@@ -730,6 +731,250 @@ def publish_state(equity, day_start_eq, killed, whale, mids):
                  pnl_all=round(equity - PAPER_START, 2))
 
 
+# ============================ SMART-MONEY ENGINE ============================
+# A second, independent paper account that tracks the week's top-100 traders
+# (ranked by ROI, filtered by win-rate from real fills) 24/7 and copies each
+# genuinely NEW position they open. Runs in its own thread alongside run_paper().
+SMART_START   = 1000.0
+SMART_FRAC    = 0.20          # 20% of equity as margin per trade
+SMART_LEV     = 6            # fixed leverage
+SMART_TP      = 0.12          # take-profit ROE
+SMART_MAX     = 5            # max concurrent positions
+SMART_TOPN    = 100          # size of the tracked list
+SMART_POOL    = 200          # leaderboard candidates evaluated for win-rate
+SMART_MINWR   = 45.0         # minimum win-rate % to qualify
+SMART_MINTR   = 10           # minimum closed trades to trust the win-rate
+SMART_REBUILD_H = 3          # rebuild the top list every N hours (keeps it "fresh")
+SMART_CYCLE   = 60.0         # target seconds for one full pass over the list
+LB_URL        = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard"
+
+SMART = {"cash": SMART_START, "pos": {}, "closed": [], "hist": []}   # pos keyed by bare coin
+SMART_TOP = []               # [{addr,name,roi,wr,score}]
+SMART_SIG = []               # recent decision log [{t,text,act}]
+_smart_last = {}             # addr -> set of bare coins open (main dex) last poll
+_smart_miss = {}             # coin -> consecutive polls the source was absent
+SMART_FILE = os.path.join(HERE, "smart_state.json")
+
+def smart_log(text, act=""):
+    SMART_SIG.insert(0, {"t": now_hms()[:5], "text": text, "act": act})
+    del SMART_SIG[80:]
+
+def fetch_leaderboard():
+    req = urllib.request.Request(LB_URL, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=25) as r:
+        return json.loads(r.read()).get("leaderboardRows", [])
+
+def _wp(row, w):
+    for a in row.get("windowPerformances", []):
+        if a and a[0] == w:
+            return a[1]
+    return None
+
+def smart_winrate(addr):
+    try:
+        fills = hl_post(SOURCE_URL, {"type": "userFills", "user": addr}, timeout=8)
+    except Exception:
+        return 0.0, 0
+    w = l = 0
+    for f in (fills or []):
+        cp = float(f.get("closedPnl") or 0)
+        if cp > 0: w += 1
+        elif cp < 0: l += 1
+    n = w + l
+    return (round(100.0 * w / n, 1) if n else 0.0), n
+
+def smart_build_top():
+    try:
+        rows = fetch_leaderboard()
+    except Exception as e:
+        print("smart leaderboard error:", e); return
+    ranked = []
+    for r in rows:
+        addr = r.get("ethAddress") or ""
+        wp = _wp(r, "week")
+        av = float(r.get("accountValue") or 0)
+        if not addr or not wp:
+            continue
+        roi = float(wp.get("roi") or 0)
+        if roi <= 0 or av < 20000:
+            continue
+        ranked.append((addr, r.get("displayName") or "", roi))
+    ranked.sort(key=lambda x: -x[2])
+    smart_log("Leaderboard: %d Kandidaten, bewerte Win-Rate…" % min(len(ranked), SMART_POOL), "info")
+    out = []
+    for addr, name, roi in ranked[:SMART_POOL]:
+        wr, n = smart_winrate(addr)
+        if wr >= SMART_MINWR and n >= SMART_MINTR:
+            out.append({"addr": addr, "name": name, "roi": round(roi * 100, 1),
+                        "wr": wr, "score": round(roi * (wr / 100.0), 4)})
+        time.sleep(0.12)
+    out.sort(key=lambda x: -x["score"])
+    global SMART_TOP
+    SMART_TOP = out[:SMART_TOPN]
+    smart_log("✅ Top-%d aktualisiert (%d Trader, ROI+WR gefiltert)" % (SMART_TOPN, len(SMART_TOP)), "info")
+
+def smart_fetch_main(addr):
+    """Main-perp positions only (no dex param) -> liquid coins we can price."""
+    try:
+        d = hl_post(SOURCE_URL, {"type": "clearinghouseState", "user": addr}, timeout=6)
+    except Exception:
+        return None
+    out = {}
+    for ap in d.get("assetPositions", []):
+        x = parse_pos(ap, "")
+        if x:
+            out[x["bare"]] = x
+    return out
+
+def smart_mark(p, mids):
+    try:
+        v = float(mids.get(p["coin"]) or 0)
+        if v > 0: return v
+    except Exception:
+        pass
+    return p["entry"]
+
+def smart_pnl(p, mids):
+    sign = 1 if p["side"] == "LONG" else -1
+    return sign * p["sz"] * (smart_mark(p, mids) - p["entry"])
+
+def smart_equity(mids):
+    return SMART["cash"] + sum(smart_pnl(p, mids) for p in SMART["pos"].values())
+
+def smart_record(p, pnl, reason, mids):
+    roe = (pnl / p["margin"]) if p.get("margin") else 0.0
+    SMART["closed"].append({"coin": p["coin"], "side": p["side"], "entry": p["entry"],
+        "exit": smart_mark(p, mids), "lev": p["lev"], "margin": round(p["margin"], 2),
+        "pnl": round(pnl, 2), "roe": round(roe, 4), "peak_roe": round(p.get("peak_roe", 0.0), 4),
+        "src_name": p.get("src_name", ""), "opened_ms": p.get("opened_ms", 0),
+        "closed_ms": int(time.time() * 1000), "reason": reason})
+    if len(SMART["closed"]) > 300:
+        del SMART["closed"][:len(SMART["closed"]) - 300]
+
+def smart_consider(coin, w, tr, mids):
+    """Decision (option 2): the trader is already top-100 by ROI+win-rate, the coin
+    is a liquid main perp -> copy unless we already hold it or are at max slots."""
+    entry = w["mark"] or w["entry"] or 0
+    nm = tr["name"] or (tr["addr"][:6] + "…")
+    with LOCK:
+        if coin in SMART["pos"]:
+            return
+        if entry <= 0:
+            return
+        if len(SMART["pos"]) >= SMART_MAX:
+            smart_log("⏭️ %s %s von %s — 5 Slots voll" % (coin, w["side"], nm), "skip"); return
+        eq = smart_equity(mids)
+        margin = eq * SMART_FRAC
+        sz = (margin * SMART_LEV) / entry
+        SMART["pos"][coin] = {"coin": coin, "side": w["side"], "entry": entry, "lev": SMART_LEV,
+            "margin": margin, "sz": sz, "tp": SMART_TP, "src": tr["addr"], "src_name": nm,
+            "opened_ms": int(time.time() * 1000), "opened": now_hms(), "peak_roe": 0.0}
+    smart_log("✅ KOPIERT %s %s · %s · WR %.0f%%" % (coin, w["side"], nm, tr["wr"]), "copy")
+    tg("🧠 SMART ✅ COPIED %s %s · von %s · WR %.0f%% · margin $%.2f · 6x · TP +12%%"
+       % (coin, w["side"], nm, tr["wr"], margin))
+
+def smart_publish(mids):
+    eq = smart_equity(mids)
+    h = SMART["hist"]; nowms = int(time.time() * 1000)
+    if not h or nowms - h[-1][0] >= 60000:
+        h.append([nowms, round(eq, 2)]); 
+        if len(h) > 5000: del h[:len(h) - 5000]
+    pos = []
+    for c, p in SMART["pos"].items():
+        mk = smart_mark(p, mids); sign = 1 if p["side"] == "LONG" else -1
+        upnl = sign * p["sz"] * (mk - p["entry"]); roe = upnl / p["margin"] if p["margin"] else 0
+        pos.append({"coin": c, "side": p["side"], "entry": p["entry"], "mark": mk, "lev": p["lev"],
+            "margin": round(p["margin"], 2), "upnl": round(upnl, 2), "roe": round(roe, 4),
+            "src_name": p.get("src_name", ""), "opened": p.get("opened_ms", 0)})
+    pos.sort(key=lambda x: -abs(x["margin"]))
+    wins = sum(1 for t in SMART["closed"] if t["pnl"] > 0); tot = sum(t["pnl"] for t in SMART["closed"]); n = len(SMART["closed"])
+    STATE["smart"] = {"equity": round(eq, 2), "cash": round(SMART["cash"], 2), "start": SMART_START,
+        "pos": pos, "closed": list(reversed(SMART["closed"][-60:])),
+        "stats": {"count": n, "win_rate": round(100.0 * wins / n, 1) if n else 0.0, "realized": round(tot, 2)},
+        "top": SMART_TOP[:100], "signals": SMART_SIG[:40], "tracked": len(SMART_TOP),
+        "lev": SMART_LEV, "tp_pct": round(SMART_TP * 100), "frac_pct": round(SMART_FRAC * 100),
+        "history": SMART["hist"][-1500:], "pnl_all": round(eq - SMART_START, 2)}
+
+def smart_save():
+    try:
+        data = {"cash": SMART["cash"], "pos": SMART["pos"], "closed": SMART["closed"][-300:],
+                "hist": SMART["hist"][-3000:], "top": SMART_TOP}
+        tmp = SMART_FILE + ".tmp"; json.dump(data, open(tmp, "w")); os.replace(tmp, SMART_FILE)
+    except Exception as e:
+        print("smart_save error:", e)
+
+def smart_load():
+    global SMART_TOP
+    if not os.path.exists(SMART_FILE):
+        return False
+    try:
+        d = json.load(open(SMART_FILE))
+        SMART["cash"] = d.get("cash", SMART_START)
+        SMART["pos"] = d.get("pos") or {}
+        SMART["closed"] = d.get("closed") or []
+        SMART["hist"] = d.get("hist") or []
+        SMART_TOP = d.get("top") or []
+        return True
+    except Exception as e:
+        print("smart_load error:", e); return False
+
+def run_smart():
+    smart_load()
+    if not SMART_TOP:
+        smart_build_top()
+    last_build = time.time(); idx = 0
+    while True:
+        try:
+            if not SMART_TOP:
+                smart_build_top(); time.sleep(5); continue
+            if time.time() - last_build > SMART_REBUILD_H * 3600:
+                smart_build_top(); last_build = time.time()
+            try:
+                mids = hl_post(SOURCE_URL, {"type": "allMids"})
+            except Exception:
+                mids = {}
+            # TP / liquidation on our own positions every tick
+            with LOCK:
+                for coin in list(SMART["pos"].keys()):
+                    p = SMART["pos"][coin]; pnl = smart_pnl(p, mids); roe = pnl / p["margin"] if p["margin"] else 0
+                    p["peak_roe"] = max(p.get("peak_roe", roe), roe)
+                    if pnl <= -p["margin"]:
+                        SMART["cash"] -= p["margin"]; SMART["pos"].pop(coin); smart_record(p, -p["margin"], "liquidated", mids)
+                        smart_log("💥 LIQ %s — -$%.2f" % (coin, p["margin"]), "liq"); tg("🧠 SMART 💥 LIQUIDATED %s — -$%.2f" % (coin, p["margin"]))
+                    elif roe >= p["tp"]:
+                        SMART["cash"] += pnl; SMART["pos"].pop(coin); smart_record(p, pnl, "take-profit", mids)
+                        smart_log("🎯 TP %s +$%.2f" % (coin, pnl), "tp"); tg("🧠 SMART 🎯 TP %s +$%.2f" % (coin, pnl))
+            # poll ONE trader per tick (staggered over the whole list)
+            tr = SMART_TOP[idx % len(SMART_TOP)]; idx += 1
+            cur = smart_fetch_main(tr["addr"])
+            if cur is not None:
+                coins_now = set(cur.keys()); prev = _smart_last.get(tr["addr"]); _smart_last[tr["addr"]] = coins_now
+                # exits: our positions sourced from this trader that he has now closed
+                with LOCK:
+                    for coin in list(SMART["pos"].keys()):
+                        p = SMART["pos"][coin]
+                        if p.get("src") != tr["addr"]:
+                            continue
+                        if coin in coins_now:
+                            _smart_miss[coin] = 0
+                        else:
+                            _smart_miss[coin] = _smart_miss.get(coin, 0) + 1
+                            if _smart_miss[coin] >= 2:
+                                pnl = smart_pnl(p, mids); SMART["cash"] += pnl; SMART["pos"].pop(coin); _smart_miss.pop(coin, None)
+                                smart_record(p, pnl, "trader exit", mids)
+                                smart_log("🔻 %s zu (Trader-Exit) %+.2f" % (coin, pnl), "exit"); tg("🧠 SMART 🔻 CLOSED %s (trader exit) %+.2f" % (coin, pnl))
+                # genuine NEW opens (only after we have a baseline snapshot for this trader)
+                if prev is not None:
+                    for coin in coins_now - prev:
+                        smart_consider(coin, cur[coin], tr, mids)
+            with LOCK:
+                smart_publish(mids)
+            smart_save()
+            time.sleep(max(0.4, SMART_CYCLE / max(1, len(SMART_TOP))))
+        except Exception as e:
+            print("smart loop error:", e); time.sleep(2)
+
+
 # ============================ PAPER LOOP ============================
 def run_paper():
     STATE["net"] = "PAPER"; STATE["running"] = True
@@ -737,6 +982,7 @@ def run_paper():
     loaded = load_paper()
     start_server()
     threading.Thread(target=start_tunnel, daemon=True).start()
+    threading.Thread(target=run_smart, daemon=True).start()   # Smart-Money top-100 tracker (separate paper book)
     tg("🤖 Copy-Bot in PAPER mode (simulated, no real money) · start $%.0f" % PAPER_START)
     print("\n>>> Dashboard:  http://<server-ip>/   (token: %s)\n" % DASH_TOKEN)
 

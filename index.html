@@ -422,6 +422,7 @@
         <button class="navitem active" data-view="watch" data-title="Watchlist" data-sub="Tracked wallets &amp; their positions"><span class="ni-ic">🔭</span><span class="ni-tx">Watchlist</span></button>
         <button class="navitem" data-view="me" data-title="My Account" data-sub="Your live Hyperliquid wallet"><span class="ni-ic">👤</span><span class="ni-tx">My Account</span></button>
         <button class="navitem" data-view="bot" data-title="Copy-Bot" data-sub="Paper account · live mirror"><span class="ni-ic">🤖</span><span class="ni-tx">Copy-Bot</span></button>
+        <button class="navitem" data-view="smart" data-title="Smart Money" data-sub="Top-100 trader tracker · auto-copy"><span class="ni-ic">🧠</span><span class="ni-tx">Smart Money</span></button>
         <button class="navitem" data-view="markets" data-title="Markets" data-sub="Live Hyperliquid markets"><span class="ni-ic">📈</span><span class="ni-tx">Markets</span></button>
         <button class="navitem" data-view="finder" data-title="Whale Finder" data-sub="Top leaderboard traders ranked by performance"><span class="ni-ic">🏆</span><span class="ni-tx">Whale Finder</span></button>
         <button class="navitem" data-view="arcade" data-title="Arcade" data-sub="Pump or Dump — kill the boredom"><span class="ni-ic">🎮</span><span class="ni-tx">Arcade</span></button>
@@ -471,6 +472,17 @@
             <section class="panel" id="myPerf"><header class="phead"><span class="wlabel">My Performance</span></header><div class="state small">Loading…</div></section>
           </div>
           <section class="panel" id="myClosed"><header class="phead"><span class="wlabel">My Closed Trades</span></header><div class="state small">Loading…</div></section>
+        </section>
+        <section class="view" id="view-smart">
+          <div class="vgrid">
+            <section class="panel" id="smartPort"><header class="phead"><span class="wlabel">Smart Money · Paper</span></header><div class="state small">Lädt… (Engine startet beim Server-Start)</div></section>
+            <section class="panel" id="smartSignals"><header class="phead"><span class="wlabel">Decision Feed</span></header><div class="state small">…</div></section>
+          </div>
+          <section class="panel" id="smartPos"><header class="phead"><span class="wlabel">Open Positions</span></header><div class="state small">…</div></section>
+          <div class="vgrid">
+            <section class="panel" id="smartTop"><header class="phead"><span class="wlabel">Tracked Top Traders</span></header><div class="state small">…</div></section>
+            <section class="panel" id="smartClosed"><header class="phead"><span class="wlabel">Closed Trades</span></header><div class="state small">…</div></section>
+          </div>
         </section>
         <section class="view" id="view-watch">
           <section class="panel" id="trackPanel">
@@ -1364,6 +1376,63 @@ function renderBot(s) {
   renderBotClosed(s);
   botMyClosed = Array.isArray(s.my_closed) ? s.my_closed : null;
   renderMyClosed();
+  renderSmart(s.smart || {});
+}
+function smShort(a) { return a ? a.slice(0, 6) + "…" + a.slice(-4) : ""; }
+function renderSmart(sm) {
+  const port = document.getElementById("smartPort");
+  if (!sm || !sm.equity) {
+    if (port) port.innerHTML = `<header class="phead"><span class="wlabel">Smart Money · Paper</span></header><div class="state small">Engine startet… Top-100 wird gebaut (Win-Rate-Analyse, ~1 Min). Erscheint nach dem nächsten Server-Poll.</div>`;
+    return;
+  }
+  const pos = sm.equity >= sm.start, all = sm.pnl_all || 0;
+  if (port) port.innerHTML = `<header class="phead"><span class="wlabel">Smart Money · Paper</span><span class="meta">${sm.tracked || 0} Trader getrackt</span></header>
+    <div class="pbody">
+      <div class="hero"><span class="herolabel">Account Value (Paper)</span><span class="heroval num ${pos ? "pos" : "neg"}">${fmtUsdC(sm.equity)}</span></div>
+      <div class="statrow"><span>All-time PnL</span><span class="num ${all >= 0 ? "pos" : "neg"}">${fmtSignedC(all)}</span></div>
+      <div class="statrow"><span>Cash (free)</span><span class="num">${fmtUsdC(sm.cash)}</span></div>
+      <div class="statrow"><span>Win rate</span><span class="num">${sm.stats ? sm.stats.win_rate : 0}% · ${sm.stats ? sm.stats.count : 0} trades</span></div>
+      <div class="statrow"><span>Open positions</span><span class="num">${(sm.pos || []).length} / 5</span></div>
+      <div class="stratbox" style="margin-top:12px"><div class="strathd">Strategy</div>
+        <div class="statrow"><span>Strategie</span><span class="num">Top-100 · neue Opens kopieren</span></div>
+        <div class="statrow"><span>Leverage / Size</span><span class="num">${sm.lev}× · ${sm.frac_pct}% equity</span></div>
+        <div class="statrow"><span>Take-Profit</span><span class="num">+${sm.tp_pct}% ROE</span></div>
+      </div>
+    </div>`;
+  const sig = document.getElementById("smartSignals");
+  if (sig) {
+    const rows = (sm.signals || []).map((e) => `<div class="logrow"><span class="logt">${esc(e.t)}</span>${esc(e.text)}</div>`).join("") || `<div class="state small">Noch keine Signale.</div>`;
+    sig.innerHTML = `<header class="phead"><span class="wlabel">Decision Feed</span></header><div class="pbody"><div class="botlog tall">${rows}</div></div>`;
+  }
+  const pp = document.getElementById("smartPos");
+  if (pp) {
+    const rows = (sm.pos || []).map((p) => {
+      const up = (p.upnl || 0) >= 0;
+      return `<tr><td><span class="side ${p.side === "LONG" ? "long" : "short"}">${p.side}</span> ${esc(p.coin)}</td>
+        <td class="num">${esc(p.src_name || "")}</td><td class="num">$${fmtP(p.entry)}</td><td class="num">$${fmtP(p.mark)}</td>
+        <td class="num ${up ? "pos" : "neg"}">${fmtSignedC(p.upnl)}</td><td class="num ${up ? "pos" : "neg"}">${((p.roe || 0) * 100).toFixed(1)}%</td></tr>`;
+    }).join("");
+    pp.innerHTML = `<header class="phead"><span class="wlabel">Open Positions</span><span class="meta">${(sm.pos || []).length}</span></header>
+      <div class="pbody">${rows ? `<div class="tablewrap"><table><thead><tr><th>Position</th><th>Quelle</th><th>Entry</th><th>Mark</th><th>uPnL</th><th>ROE</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="state small">Keine offenen Positionen.</div>`}</div>`;
+  }
+  const tp = document.getElementById("smartTop");
+  if (tp) {
+    const rows = (sm.top || []).slice(0, 60).map((t, i) => `<div class="fndrow" style="grid-template-columns:30px 1.5fr .7fr .7fr">
+      <span class="fndrank">${i + 1}</span>
+      <span class="fndaddr"><a class="waddr" href="https://hypurrscan.io/address/${t.addr}" target="_blank" rel="noopener">${esc(t.name || smShort(t.addr))}</a></span>
+      <span class="num pos">${t.roi}%</span><span class="num">${t.wr}% W</span></div>`).join("");
+    tp.innerHTML = `<header class="phead"><span class="wlabel">Tracked Top Traders</span><span class="meta">${(sm.top || []).length}</span></header>
+      <div class="pbody">${rows ? `<div class="fndtable">${rows}</div>` : `<div class="state small">Wird gebaut…</div>`}</div>`;
+  }
+  const cl = document.getElementById("smartClosed");
+  if (cl) {
+    const rows = (sm.closed || []).map((t) => {
+      const w = (t.pnl || 0) >= 0;
+      return `<div class="logrow"><span class="logt">${esc(t.side)} ${esc(t.coin)}</span> <span class="num ${w ? "pos" : "neg"}">${fmtSignedC(t.pnl)}</span> · ${((t.roe || 0) * 100).toFixed(0)}% · <span style="color:var(--muted)">${esc(t.reason || "")}</span></div>`;
+    }).join("") || `<div class="state small">Noch keine geschlossenen Trades.</div>`;
+    const st = sm.stats || {};
+    cl.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span><span class="meta">${st.count ? st.count + " · " + fmtSigned(st.realized) : ""}</span></header><div class="pbody"><div class="botlog tall">${rows}</div></div>`;
+  }
 }
 // top KPI band — all about MY account. Live values (total, unrealized, positions)
 // come from tickMine; the portfolio-range values (24h, 30d) are set here when data loads.
