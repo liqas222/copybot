@@ -345,7 +345,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SECRETS_FILE = os.path.join(HERE, "secrets.json")   # local only, NOT in git
 
 def load_secrets():
+    global DASH_TOKEN
     if not os.path.exists(SECRETS_FILE):
+        print("secrets.json NOT FOUND at %s — starting with %d default wallets" % (SECRETS_FILE, len(WALLETS)))
         return
     try:
         d = json.load(open(SECRETS_FILE))
@@ -357,18 +359,26 @@ def load_secrets():
             SET["tp_crypto"] = float(d["tp_crypto"])
         if d.get("tp_stock"):
             SET["tp_stock"] = float(d["tp_stock"])
+        # keep the dashboard token stable across restarts (env var still wins)
+        if not os.environ.get("DASH_TOKEN") and d.get("dash_token"):
+            DASH_TOKEN = d["dash_token"]
         if isinstance(d.get("wallets"), list) and d["wallets"]:
             WALLETS[:] = [{"addr": w["addr"], "label": w.get("label", "Wallet")}
                           for w in d["wallets"] if w.get("addr")]
+        print("secrets.json loaded: %d wallets, Telegram %s, token persisted" %
+              (len(WALLETS), "on" if TG["token"] else "off"))
     except Exception as e:
         print("load_secrets error:", e)
 
 def save_secrets():
     try:
+        tmp = SECRETS_FILE + ".tmp"
         json.dump({"tg_token": TG["token"], "tg_chat": TG["chat"],
                    "tp_crypto": SET["tp_crypto"], "tp_stock": SET["tp_stock"],
-                   "wallets": WALLETS},
-                  open(SECRETS_FILE, "w"))
+                   "dash_token": DASH_TOKEN, "wallets": WALLETS},
+                  open(tmp, "w"))
+        os.replace(tmp, SECRETS_FILE)   # atomic write so a crash can't truncate the file
+        print("saved secrets.json: %d wallets, Telegram %s" % (len(WALLETS), "on" if TG["token"] else "off"))
     except Exception as e:
         print("save_secrets error:", e)
 
@@ -985,6 +995,7 @@ def run_smart():
 def run_paper():
     STATE["net"] = "PAPER"; STATE["running"] = True
     load_secrets()
+    save_secrets()          # persist a stable dash token + ensure secrets.json exists from the first run
     loaded = load_paper()
     start_server()
     threading.Thread(target=start_tunnel, daemon=True).start()
@@ -1185,6 +1196,7 @@ def main():
         return
 
     load_secrets()
+    save_secrets()          # persist a stable dash token + ensure secrets.json exists
     cfg_path = os.path.join(HERE, "config.json")
     if not os.path.exists(cfg_path):
         if EXEC_URL != constants.TESTNET_API_URL:
