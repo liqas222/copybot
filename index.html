@@ -395,6 +395,23 @@
   @keyframes zzz { 0% { opacity: 0; transform: translateY(8px) rotate(-6deg); } 35% { opacity: .95; } 100% { opacity: 0; transform: translateY(-12px) rotate(8deg); } }
   .whaletext { color: var(--muted); font-size: 13px; letter-spacing: .2px; }
   @media (prefers-reduced-motion: reduce) { .whalewrap, .wbub, .zzz { animation: none; } .zzz { opacity: .6; } }
+  /* boredom screensaver */
+  #chillBtn { position: fixed; right: 18px; bottom: 18px; z-index: 300; width: 46px; height: 46px; border-radius: 50%;
+    border: 1px solid rgba(168,85,247,.5); background: radial-gradient(circle at 30% 30%, #a855f7, #6366f1); color: #fff;
+    font-size: 19px; cursor: pointer; box-shadow: 0 10px 26px -8px rgba(168,85,247,.7); transition: transform .15s, box-shadow .15s;
+    animation: chillPulse 3s ease-in-out infinite; }
+  #chillBtn:hover { transform: scale(1.12) rotate(8deg); box-shadow: 0 14px 34px -8px rgba(236,72,153,.8); }
+  @keyframes chillPulse { 0%,100% { box-shadow: 0 10px 26px -8px rgba(168,85,247,.6); } 50% { box-shadow: 0 10px 34px -6px rgba(236,72,153,.85); } }
+  #chill { position: fixed; inset: 0; z-index: 999; display: none; background: #04040a; cursor: pointer; animation: chillIn .35s ease-out; }
+  #chill.on { display: block; }
+  @keyframes chillIn { from { opacity: 0; } to { opacity: 1; } }
+  #chillCanvas { width: 100%; height: 100%; display: block; }
+  .chillui { position: absolute; inset: 0; pointer-events: none; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 8vh; gap: 6px; }
+  .chillclock { font-family: "Chakra Petch", var(--ui); font-weight: 700; font-size: clamp(40px, 9vw, 120px); letter-spacing: 3px;
+    background: linear-gradient(90deg,#6366F1,#A855F7,#EC4899); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 40px rgba(168,85,247,.3); opacity: .92; }
+  .chillscene { font-family: var(--mono); font-size: 12px; letter-spacing: 3px; text-transform: uppercase; color: rgba(255,255,255,.55); }
+  .chillhint { font-size: 12px; color: rgba(255,255,255,.35); margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -520,6 +537,11 @@
       </div>
       <div class="foot">Live prices from Hyperliquid · updates while this page is open · not financial advice</div>
     </main>
+  </div>
+  <button id="chillBtn" title="Langeweile? Screensaver" onclick="chillOpen()">✨</button>
+  <div id="chill" onclick="chillClose()">
+    <canvas id="chillCanvas"></canvas>
+    <div class="chillui"><div class="chillclock" id="chillClock">—</div><div class="chillscene" id="chillScene"></div><div class="chillhint">klick irgendwo zum Beenden</div></div>
   </div>
   <div id="chartModal" class="modal" style="display:none" aria-hidden="true">
     <div class="modalbg" onclick="closeChart()"></div>
@@ -2007,6 +2029,114 @@ function pgOpen() {
   if (!PG.inited) { PG.best = +(localStorage.getItem("pgBest") || 0); PG.inited = true; pgReset(); }
   pgStart();
 }
+
+/* ---------- Boredom screensaver: cycling animated scenes ---------- */
+const CHILL = { on: false, raf: 0, last: 0, t: 0, scene: 0, sw: 0, W: 0, H: 0, c: null, x: null, st: null };
+const _rnd = (a, b) => a + Math.random() * (b - a);
+function chillResize() {
+  const c = CHILL.c; if (!c) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  CHILL.W = window.innerWidth; CHILL.H = window.innerHeight;
+  c.width = CHILL.W * dpr; c.height = CHILL.H * dpr;
+  CHILL.x.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+const CHILL_SCENES = [
+  { name: "warp drive", init(W, H) { this.s = Array.from({ length: 320 }, () => ({ x: _rnd(-W, W), y: _rnd(-H, H), z: _rnd(1, W) })); },
+    draw(x, dt, W, H) {
+      x.fillStyle = "rgba(4,4,10,.35)"; x.fillRect(0, 0, W, H);
+      const cx = W / 2, cy = H / 2;
+      for (const p of this.s) {
+        const pz = p.z; p.z -= dt * 420; if (p.z <= 1) { p.x = _rnd(-W, W); p.y = _rnd(-H, H); p.z = W; }
+        const k = 220 / p.z, kx = 220 / pz;
+        const sx = cx + p.x * k, sy = cy + p.y * k, px = cx + p.x * kx, py = cy + p.y * kx;
+        const a = Math.min(1, (W - p.z) / W);
+        x.strokeStyle = `rgba(${180 + a * 60 | 0},${120 + a * 80 | 0},255,${a})`; x.lineWidth = a * 2.2;
+        x.beginPath(); x.moveTo(px, py); x.lineTo(sx, sy); x.stroke();
+      }
+    } },
+  { name: "coin matrix", init(W, H) { this.col = Math.floor(W / 20); this.y = Array.from({ length: this.col }, () => _rnd(-H, 0)); this.ch = "₿Ξ$◆◇▲▼01"; },
+    draw(x, dt, W, H) {
+      x.fillStyle = "rgba(4,4,10,.18)"; x.fillRect(0, 0, W, H);
+      x.font = "16px JetBrains Mono, monospace";
+      for (let i = 0; i < this.col; i++) {
+        const ch = this.ch[Math.floor(Math.random() * this.ch.length)];
+        const xx = i * 20, yy = this.y[i];
+        x.fillStyle = "rgba(236,72,153,.95)"; x.fillText(ch, xx, yy);
+        x.fillStyle = "rgba(120,90,255,.35)"; x.fillText(ch, xx, yy - 18);
+        this.y[i] += dt * _rnd(180, 360);
+        if (this.y[i] > H + 20) this.y[i] = _rnd(-200, 0);
+      }
+    } },
+  { name: "synthwave", init() { this.off = 0; }, draw(x, dt, W, H) {
+      x.fillStyle = "#0a0420"; x.fillRect(0, 0, W, H);
+      const hz = H * 0.42;
+      const sun = x.createLinearGradient(0, hz - 160, 0, hz); sun.addColorStop(0, "#f59e0b"); sun.addColorStop(1, "#ec4899");
+      x.fillStyle = sun; x.beginPath(); x.arc(W / 2, hz, 110, Math.PI, 0); x.fill();
+      x.fillStyle = "#0a0420"; for (let i = 0; i < 6; i++) x.fillRect(W / 2 - 120, hz - 70 + i * 16, 240, 7);
+      this.off = (this.off + dt * 120) % 60;
+      x.strokeStyle = "rgba(168,85,247,.6)"; x.lineWidth = 1.5;
+      for (let i = 0; i < 22; i++) { const yy = hz + i * 26 - this.off; const sc = (yy - hz) / (H - hz);
+        x.globalAlpha = Math.min(1, sc * 2.2); x.beginPath(); x.moveTo(0, yy); x.lineTo(W, yy); x.stroke(); }
+      for (let i = -10; i <= 10; i++) { x.beginPath(); x.moveTo(W / 2 + i * 30, hz); x.lineTo(W / 2 + i * 220, H); x.stroke(); }
+      x.globalAlpha = 1;
+    } },
+  { name: "glow orbs", init(W, H) { this.o = Array.from({ length: 14 }, () => ({ x: _rnd(0, W), y: _rnd(0, H), vx: _rnd(-60, 60), vy: _rnd(-60, 60), r: _rnd(40, 120), h: _rnd(240, 320) })); },
+    draw(x, dt, W, H) {
+      x.fillStyle = "rgba(4,4,10,.25)"; x.fillRect(0, 0, W, H);
+      for (const o of this.o) {
+        o.x += o.vx * dt; o.y += o.vy * dt;
+        if (o.x < 0 || o.x > W) o.vx *= -1; if (o.y < 0 || o.y > H) o.vy *= -1;
+        const g = x.createRadialGradient(o.x, o.y, 0, o.x, o.y, o.r);
+        g.addColorStop(0, `hsla(${o.h},80%,65%,.6)`); g.addColorStop(1, `hsla(${o.h},80%,65%,0)`);
+        x.fillStyle = g; x.beginPath(); x.arc(o.x, o.y, o.r, 0, 7); x.fill();
+      }
+    } },
+  { name: "bouncing hex", init(W, H) { this.p = { x: W / 2, y: H / 2, vx: _rnd(160, 260), vy: _rnd(140, 220), h: 280 }; },
+    draw(x, dt, W, H) {
+      x.fillStyle = "rgba(4,4,10,.3)"; x.fillRect(0, 0, W, H);
+      const p = this.p, s = 60; p.x += p.vx * dt; p.y += p.vy * dt;
+      if (p.x < s || p.x > W - s) { p.vx *= -1; p.h = (p.h + 47) % 360; }
+      if (p.y < s || p.y > H - s) { p.vy *= -1; p.h = (p.h + 47) % 360; }
+      x.fillStyle = `hsl(${p.h},85%,62%)`; x.shadowColor = x.fillStyle; x.shadowBlur = 30;
+      x.font = "bold 90px Chakra Petch, sans-serif"; x.textAlign = "center"; x.textBaseline = "middle";
+      x.fillText("⬡", p.x, p.y); x.shadowBlur = 0; x.textAlign = "start"; x.textBaseline = "alphabetic";
+    } },
+  { name: "fireworks", init() { this.p = []; this.timer = 0; },
+    draw(x, dt, W, H) {
+      x.fillStyle = "rgba(4,4,10,.2)"; x.fillRect(0, 0, W, H);
+      this.timer -= dt;
+      if (this.timer <= 0) { this.timer = _rnd(0.4, 1.0); const bx = _rnd(W * .2, W * .8), by = _rnd(H * .15, H * .6), h = _rnd(0, 360);
+        for (let i = 0; i < 70; i++) { const a = Math.random() * 7, sp = _rnd(40, 240); this.p.push({ x: bx, y: by, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1, h }); } }
+      for (const q of this.p) { q.vy += 120 * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.life -= dt * 0.7;
+        x.fillStyle = `hsla(${q.h},90%,65%,${Math.max(0, q.life)})`; x.fillRect(q.x, q.y, 3, 3); }
+      this.p = this.p.filter((q) => q.life > 0);
+    } },
+];
+function chillLoop(ts) {
+  if (!CHILL.on) return;
+  const dt = CHILL.last ? Math.min((ts - CHILL.last) / 1000, 0.05) : 0.016; CHILL.last = ts;
+  CHILL.t += dt; CHILL.sw += dt;
+  if (CHILL.sw > 7) { CHILL.sw = 0; CHILL.scene = (CHILL.scene + 1) % CHILL_SCENES.length;
+    const s = CHILL_SCENES[CHILL.scene]; s.init(CHILL.W, CHILL.H); CHILL.x.clearRect(0, 0, CHILL.W, CHILL.H);
+    const el = document.getElementById("chillScene"); if (el) el.textContent = s.name; }
+  CHILL_SCENES[CHILL.scene].draw(CHILL.x, dt, CHILL.W, CHILL.H);
+  const ck = document.getElementById("chillClock");
+  if (ck && (CHILL.t % 1) < dt) ck.textContent = new Date().toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" });
+  CHILL.raf = requestAnimationFrame(chillLoop);
+}
+function chillOpen() {
+  const ov = document.getElementById("chill"); if (!ov) return;
+  CHILL.c = document.getElementById("chillCanvas"); CHILL.x = CHILL.c.getContext("2d");
+  ov.classList.add("on"); CHILL.on = true; CHILL.last = 0; CHILL.sw = 99; CHILL.scene = -1;
+  chillResize();
+  const ck = document.getElementById("chillClock"); if (ck) ck.textContent = new Date().toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" });
+  CHILL.raf = requestAnimationFrame(chillLoop);
+}
+function chillClose() {
+  CHILL.on = false; if (CHILL.raf) cancelAnimationFrame(CHILL.raf);
+  const ov = document.getElementById("chill"); if (ov) ov.classList.remove("on");
+}
+window.addEventListener("resize", () => { if (CHILL.on) chillResize(); });
 function init() {
   const b = document.getElementById("soundBtn"); if (b) b.addEventListener("click", toggleSound);
   initNav();
@@ -2014,7 +2144,7 @@ function init() {
     finderWindow = btn.dataset.w;
     document.querySelectorAll("#fndWindow .rbtn").forEach((x) => x.classList.toggle("on", x === btn));
   }));
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeChart(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeChart(); if (CHILL.on) chillClose(); } });
   updateSoundBtn();
   renderMine();
   refreshStructure();
