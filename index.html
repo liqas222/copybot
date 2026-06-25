@@ -1016,9 +1016,11 @@ function btBestStrategy(data, start) {
 function renderBacktest(r, addr) {
   const out = document.getElementById("btResult"); if (!out) return;
   const pos = r.pnl >= 0;
+  const unreliable = r.cyclesN > 0 && r.noData / r.cyclesN > 0.3;   // >30% of trades have no price history
   const who = addr ? `<a class="waddr" href="https://hypurrscan.io/address/${addr}" target="_blank" rel="noopener">${addr.slice(0, 6)}…${addr.slice(-4)}</a>` : "";
   out.innerHTML = `
-    <div class="hero" style="margin-bottom:16px"><span class="herolabel">Result · 30 days ${who}</span><span class="heroval num ${pos ? "pos" : "neg"}" style="font-size:2.2rem">${fmtSignedC(r.pnl)}</span></div>
+    ${unreliable ? `<div class="setnote err" style="margin-bottom:14px;padding:12px;line-height:1.5">⚠ <b>Nicht zuverlässig backtestbar.</b> ${r.noData} von ${r.cyclesN} Trades dieses Wallets laufen auf tokenisierten Stock-/Builder-Perps ohne öffentliche Kurs-Historie. Ohne den Kursverlauf während des Trades lässt sich nicht bestimmen, ob ein Hebel-Trade liquidiert worden wäre — die Zahl unten ist daher unzuverlässig (eher zu optimistisch). Teste ein Wallet, das normale Krypto-Perps (BTC, ETH, SOL …) handelt, für ein belastbares Ergebnis.</div>` : ""}
+    <div class="hero" style="margin-bottom:16px${unreliable ? ";opacity:.55" : ""}"><span class="herolabel">Result · 30 days ${who}</span><span class="heroval num ${pos ? "pos" : "neg"}" style="font-size:2.2rem">${fmtSignedC(r.pnl)}</span></div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px 24px;margin-bottom:12px">
       <div class="statrow"><span>Return</span><span class="num ${pos ? "pos" : "neg"}">${(r.pct >= 0 ? "+" : "") + r.pct.toFixed(1)}%</span></div>
       <div class="statrow"><span>End balance</span><span class="num">${fmtUsdC(r.equity)}</span></div>
@@ -1028,7 +1030,7 @@ function renderBacktest(r, addr) {
       <div class="statrow" title="TP-Treffer · Liquidationen · Whale-Exit (kein TP/Liq) · Noch offen"><span>TP · Liq · Whale · Offen</span><span class="num">${r.tpHits} · ${r.liqs} · ${r.whaleExits} · ${r.stillOpen}</span></div>
       <div class="statrow" title="rohe Fills · erkannte Whale-Trades (30d)"><span>Fills · Trades erkannt</span><span class="num">${r.fillsN} · ${r.cyclesN}</span></div>
     </div>
-    ${r.noData ? `<div class="setnote" style="margin-bottom:8px;opacity:.8">ℹ ${r.noData} von ${r.cyclesN} Trades ohne Kerzendaten (Stock-/Builder-DEX). Bei diesen wird Liq/TP nur aus den Whale-Fills geprüft (konservativ) — kurze Dips zwischen seinen Trades können fehlen.</div>` : ""}
+    ${r.noData && !unreliable ? `<div class="setnote" style="margin-bottom:8px;opacity:.8">ℹ ${r.noData} von ${r.cyclesN} Trades ohne Kerzendaten (Stock-/Builder-DEX). Bei diesen wird Liq/TP nur aus den Whale-Fills geprüft (konservativ) — kurze Dips zwischen seinen Trades können fehlen.</div>` : ""}
     <div class="setnote">Entry = Whale-Entry · ${r.lev}× Hebel · 20% Margin/Trade · max 5 gleichzeitig · 1m-Kerzen pro Trade für echte Liq-Erkennung · Gebühren/Funding nicht modelliert</div>`;
 }
 let btDataCache = { addr: null, data: null };     // reuse loaded fills/candles between runs for the same wallet
@@ -1083,9 +1085,11 @@ async function runBestStrategy() {
 function renderBestStrategy(r, addr, data) {
   const out = document.getElementById("btResult"); if (!out) return;
   const pos = r.pnl >= 0;
+  const unreliable = r.cyclesN > 0 && r.noData / r.cyclesN > 0.3;
   const who = addr ? `<a class="waddr" href="https://hypurrscan.io/address/${addr}" target="_blank" rel="noopener">${addr.slice(0, 6)}…${addr.slice(-4)}</a>` : "";
   out.innerHTML = `
-    <div class="hero" style="margin-bottom:8px"><span class="herolabel">🏆 Beste Strategie · 30 days ${who}</span><span class="heroval num ${pos ? "pos" : "neg"}" style="font-size:2.2rem">${(r.pct >= 0 ? "+" : "") + r.pct.toFixed(1)}%</span></div>
+    ${unreliable ? `<div class="setnote err" style="margin-bottom:14px;padding:12px;line-height:1.5">⚠ <b>Nicht zuverlässig.</b> ${r.noData} von ${r.cyclesN} Trades laufen auf Stock-/Builder-Perps ohne Kurs-Historie. Die „beste" Kombination optimiert hier nur auf fehlende Liquidationsdaten und wählt künstlich hohen Hebel — bei echtem Geld führt das zu Totalverlust. Aussagekräftig nur bei Wallets mit normalen Krypto-Perps.</div>` : ""}
+    <div class="hero" style="margin-bottom:8px${unreliable ? ";opacity:.55" : ""}"><span class="herolabel">🏆 Beste Strategie · 30 days ${who}</span><span class="heroval num ${pos ? "pos" : "neg"}" style="font-size:2.2rem">${(r.pct >= 0 ? "+" : "") + r.pct.toFixed(1)}%</span></div>
     <div class="hero" style="margin-bottom:16px;background:rgba(60,200,140,.08);border-radius:10px;padding:10px 14px">
       <span class="herolabel">Optimaler Hebel &amp; Take-Profit</span>
       <span class="heroval num pos" style="font-size:1.5rem">${r.lev}× · TP ${Math.round(r.tp * 100)}%</span>
