@@ -814,8 +814,7 @@ function btInterval(span) {
   const ivs = [["1m", 60000], ["5m", 300000], ["15m", 900000], ["1h", 3600000], ["4h", 14400000], ["1d", 86400000]];
   for (const it of ivs) { if (span / it[1] <= 4500) return it; }
   return ivs[ivs.length - 1];
-}
-async function postRetry(body, tries = 5) {       // deterministic fetch: retry on rate-limit/error w/ backoff
+}async function postRetry(body, tries = 5) {       // deterministic fetch: retry on rate-limit/error w/ backoff
   let lastErr = null;
   for (let i = 0; i < tries; i++) {
     try {
@@ -924,25 +923,31 @@ async function btFetchFills(addr, from, now) {   // paginate userFillsByTime to 
   for (const f of all) { const k = f.time + "|" + (f.hash || f.oid || f.tid || ""); if (seen.has(k)) continue; seen.add(k); out.push(f); }
   return out.filter((f) => f.time >= from && f.time <= now);
 }
-async function btLoadData(addr) {                 // fetch fills + candles ONCE (independent of lev/tp)
+async function btLoadData(addr, onProgress) {     // fetch fills + FINE per-trade candles (independent of lev/tp)
   // snap to the full hour so repeated runs use the EXACT same 30-day window → reproducible result
   const now = Math.floor(Date.now() / 3600000) * 3600000, from = now - 30 * 86400000;
   const fills = await btFetchFills(addr, from, now);
   let cycles = btBuildCycles(fills, from, now).sort((a, b) => a.openT - b.openT);
   const cyclesN = cycles.length, fillsN = fills.length;
-  const iv = btInterval(now - from), byCoin = {};
-  const uniq = Array.from(new Set(cycles.map((c) => c.coin)));
-  for (const coin of uniq) {                      // sequential to avoid rate-limiting
-    const cy = cycles.find((c) => c.coin === coin);
-    byCoin[coin] = await btCandles(coin, cy ? cy.rawCoin : null, from - iv[1], now, iv[0]);
-    if (uniq.length > 3) await new Promise((r) => setTimeout(r, 150));
+  // Per-trade fine candles: pick the finest interval that fits the trade's own duration.
+  // Short trades → 1m candles → real intraday wicks → real liquidations detected.
+  let noData = 0;
+  for (let i = 0; i < cycles.length; i++) {
+    const cy = cycles[i];
+    const span = Math.max(cy.closeT - cy.openT, 60000);
+    const iv = btInterval(span);                  // 1m for trades up to ~3 days, then coarser
+    cy.candles = await btCandles(cy.coin, cy.rawCoin, cy.openT - iv[1], cy.closeT + iv[1], iv[0]);
+    cy.candleIv = iv[0];
+    if (!cy.candles.length) { cy.noData = true; noData++; }
+    if (onProgress) onProgress(i + 1, cycles.length);
+    await new Promise((r) => setTimeout(r, 80));   // pace to avoid rate-limit
   }
-  return { cycles, byCoin, now, fillsN, cyclesN };
+  return { cycles, now, fillsN, cyclesN, noData };
 }
 function btSimulate(data, tp, lev, start) {        // pure computation: exits + equity for a given lev/tp
   const FRAC = 0.20, MAXPOS = 5;
-  const { cycles, byCoin, now, fillsN, cyclesN } = data;
-  for (const cy of cycles) cy.exit = btCycleExit(cy, byCoin[cy.coin] || [], tp, lev, now);
+  const { cycles, now, fillsN, cyclesN, noData } = data;
+  for (const cy of cycles) cy.exit = btCycleExit(cy, cy.candles || [], tp, lev, now);
   // event-driven equity simulation (compounding + 5-slot cap)
   let equity = start, peakEq = start, maxDD = 0, wins = 0, losses = 0, count = 0, tpHits = 0, liqs = 0, whaleExits = 0, stillOpen = 0;
   let open = [];
@@ -975,7 +980,7 @@ function btSimulate(data, tp, lev, start) {        // pure computation: exits + 
     count++;
   }
   settle(Infinity);
-  return { equity, pnl: equity - start, pct: start > 0 ? (equity - start) / start * 100 : 0, count, wins, losses, maxDD, tpHits, liqs, whaleExits, stillOpen, fillsN, cyclesN, lev, tp };
+  return { equity, pnl: equity - start, pct: start > 0 ? (equity - start) / start * 100 : 0, count, wins, losses, maxDD, tpHits, liqs, whaleExits, stillOpen, fillsN, cyclesN, noData, lev, tp };
 }
 async function backtest(addr, tp, lev, start) {
   const data = await btLoadData(addr);
@@ -1007,7 +1012,8 @@ function renderBacktest(r, addr) {
       <div class="statrow" title="TP-Treffer · Liquidationen · Whale-Exit (kein TP/Liq) · Noch offen"><span>TP · Liq · Whale · Offen</span><span class="num">${r.tpHits} · ${r.liqs} · ${r.whaleExits} · ${r.stillOpen}</span></div>
       <div class="statrow" title="rohe Fills · erkannte Whale-Trades (30d)"><span>Fills · Trades erkannt</span><span class="num">${r.fillsN} · ${r.cyclesN}</span></div>
     </div>
-    <div class="setnote">Entry = Whale-Entry · ${r.lev}× Hebel · 20% Margin/Trade · max 5 gleichzeitig · Exit = eigener TP/Liq unabhängig vom Whale · Gebühren/Funding nicht modelliert</div>`;
+    ${r.noData ? `<div class="setnote err" style="margin-bottom:8px">⚠ ${r.noData} von ${r.cyclesN} Trades ohne Kerzendaten (Builder-/Stock-DEX) — bei diesen kann keine Liquidation geprüft werden, sie folgen dem Whale-Exit. Ergebnis daher eher zu optimistisch.</div>` : ""}
+    <div class="setnote">Entry = Whale-Entry · ${r.lev}× Hebel · 20% Margin/Trade · max 5 gleichzeitig · 1m-Kerzen pro Trade für echte Liq-Erkennung · Gebühren/Funding nicht modelliert</div>`;
 }
 let btDataCache = { addr: null, data: null };     // reuse loaded fills/candles between runs for the same wallet
 function btReadInputs() {
@@ -1023,8 +1029,11 @@ function btReadInputs() {
 }
 async function btGetData(addr, out, label) {
   if (btDataCache.addr === addr && btDataCache.data) return btDataCache.data;
-  if (out) out.innerHTML = `<div class="state small">${label} für ${addr.slice(0, 6)}…${addr.slice(-4)} — Trades &amp; Candles werden geladen…</div>`;
-  const data = await btLoadData(addr);
+  const short = addr.slice(0, 6) + "…" + addr.slice(-4);
+  if (out) out.innerHTML = `<div class="state small">${label} für ${short} — Trades werden geladen…</div>`;
+  const data = await btLoadData(addr, (done, total) => {
+    if (out) out.innerHTML = `<div class="state small">${label} für ${short} — 1m-Kerzen pro Trade: ${done}/${total}…</div>`;
+  });
   btDataCache = { addr, data };
   return data;
 }
@@ -1073,6 +1082,7 @@ function renderBestStrategy(r, addr, data) {
       <div class="statrow"><span>Max drawdown</span><span class="num neg">-${(r.maxDD * 100).toFixed(1)}%</span></div>
       <div class="statrow" title="TP-Treffer · Liquidationen · Whale-Exit · Noch offen"><span>TP · Liq · Whale · Offen</span><span class="num">${r.tpHits} · ${r.liqs} · ${r.whaleExits} · ${r.stillOpen}</span></div>
     </div>
+    ${r.noData ? `<div class="setnote err" style="margin-bottom:8px">⚠ ${r.noData} von ${r.cyclesN} Trades ohne Kerzendaten — Liquidation dort nicht prüfbar, Ergebnis eher zu optimistisch.</div>` : ""}
     <div class="setnote">Bestes Ergebnis aus 100 Kombinationen (Hebel 2–40× × TP 5–50%) auf denselben Whale-Trades. Hebel &amp; TP oben wurden auf den Gewinner gesetzt — „Run backtest" zeigt die Details. Höchste Rendite ≠ sicherste: prüfe Max Drawdown &amp; Liquidationen.</div>`;
 }
 
