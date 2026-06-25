@@ -100,6 +100,20 @@ ADOPT = {"pending": False}
 
 
 # ---------------- notifications + log ----------------
+# All server-generated times use Swiss local time (CET/CEST, DST-aware) instead of
+# the server's UTC clock — so Telegram messages, the dashboard log and position
+# open-times match your wall clock in Switzerland.
+try:
+    from zoneinfo import ZoneInfo
+    LOCAL_TZ = ZoneInfo(os.environ.get("BOT_TZ", "Europe/Zurich"))
+except Exception:
+    LOCAL_TZ = None      # tz database missing -> fall back to the server clock
+
+def now_hms():
+    if LOCAL_TZ is not None:
+        return datetime.datetime.now(LOCAL_TZ).strftime("%H:%M:%S")
+    return time.strftime("%H:%M:%S")
+
 _TGQ = queue.Queue()
 def _tg_send(msg):
     tok = TG["token"]
@@ -125,13 +139,14 @@ threading.Thread(target=_tg_worker, daemon=True).start()
 def tg(msg):
     # Log instantly for the dashboard, then hand the Telegram send to a
     # background worker so the poll loop never blocks on the network.
+    stamp = now_hms()
     with LOCK:
-        STATE["log"].append({"t": time.strftime("%H:%M:%S"), "text": msg})
+        STATE["log"].append({"t": stamp, "text": msg})
         if len(STATE["log"]) > 200:
             STATE["log"] = STATE["log"][-200:]
     print(msg)
     if TG["token"]:
-        _TGQ.put(msg)
+        _TGQ.put("🕒 %s\n%s" % (stamp[:5], msg))   # local-time stamp on every Telegram message
 
 
 # ---------------- HL reads (public) ----------------
@@ -856,7 +871,7 @@ def run_paper():
                         PAPER["pos"][key] = {"bare": w["bare"], "coin": w["coin"], "dex": w["dex"],
                                              "side": w["side"], "entry": entry, "lev": lev,
                                              "mode": w["mode"], "sz": sz, "margin": margin, "tp": tp,
-                                             "opened": time.strftime("%H:%M:%S"),
+                                             "opened": now_hms(),
                                              "opened_ms": int(time.time() * 1000)}
                         adopted.append("✅ ADOPTED %s %s @ $%.4f (whale entry) · margin $%.2f · %dx %s · TP +%.0f%% ROE"
                                        % (w["bare"], w["side"], entry, margin, lev,
@@ -900,7 +915,7 @@ def run_paper():
                         PAPER["pos"][key] = {"bare": w["bare"], "coin": w["coin"], "dex": w["dex"],
                                              "side": w["side"], "entry": entry, "lev": lev,
                                              "mode": w["mode"], "sz": sz, "margin": margin, "tp": tp,
-                                             "opened": time.strftime("%H:%M:%S"),
+                                             "opened": now_hms(),
                                              "opened_ms": int(time.time() * 1000)}
                         msg = ("✅ COPIED %s %s · margin $%.2f · %dx %s · TP +%.0f%% ROE"
                                % (w["bare"], w["side"], margin, lev,
