@@ -853,7 +853,7 @@ async function fetchTp(addr, coin) {
   } catch (e) { /* ignore */ }
   return null;
 }
-function fmtDateTime(ts) { if (!ts) return null; const d = new Date(ts), p = (n) => String(n).padStart(2, "0"); return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; }
+function fmtDateTime(ts) { if (!ts) return null; return new Date(ts).toLocaleString("de-CH", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Zurich" }); }
 function pnlSpan(v) { return `<span class="${v >= 0 ? "pos" : "neg"}">${fmtSignedC(v)}</span>`; }
 function pctSpan(v) { return `<span class="${v >= 0 ? "pos" : "neg"}">${(v >= 0 ? "+" : "") + v.toFixed(2)}%</span>`; }
 function openTradeModal(d) {
@@ -1025,14 +1025,14 @@ function attachHover(root, meta) {
     const xpx = (xvb / m.W) * rect.width, ypx = (yvb / m.H) * rect.height;
     dot.style.left = xpx + "px"; dot.style.top = ypx + "px"; dot.style.display = "block";
     const d = new Date(p.t);
-    tip.innerHTML = `<b>${fmtUsdC(p.v)}</b><span>${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>`;
+    tip.innerHTML = `<b>${fmtUsdC(p.v)}</b><span>${d.toLocaleDateString("de-CH", { month: "short", day: "numeric", timeZone: "Europe/Zurich" })} ${d.toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Zurich" })}</span>`;
     let tl = xpx + 10; if (tl > rect.width - 116) tl = xpx - 116; if (tl < 0) tl = 0;
     tip.style.left = tl + "px"; tip.style.top = Math.max(0, ypx - 42) + "px"; tip.style.display = "block";
   };
   wrap.onmouseleave = () => { tip.style.display = "none"; dot.style.display = "none"; };
 }
 function fmtPct(x) { return (x >= 0 ? "+" : "") + (x * 100).toFixed(1) + "%"; }
-function fmtDate(ts) { if (!ts) return "—"; const d = new Date(ts), p = (n) => String(n).padStart(2, "0"); return p(d.getDate()) + "." + p(d.getMonth() + 1) + "." + d.getFullYear(); }
+function fmtDate(ts) { if (!ts) return "—"; return new Date(ts).toLocaleDateString("de-CH", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Europe/Zurich" }); }
 function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 function setCell(el, text) { if (!el || el.textContent === text) return; el.textContent = text; el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash"); }
 function setPnl(el, val) { if (!el) return; el.classList.toggle("pos", val >= 0); el.classList.toggle("neg", val < 0); setCell(el.querySelector(".v"), fmtSigned(val)); }
@@ -1303,7 +1303,7 @@ async function refreshStructure() {
   renderMine();
   stamp();
 }
-function stamp() { const el = document.getElementById("updated"); if (el) el.textContent = "Live · " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }); }
+function stamp() { const el = document.getElementById("updated"); if (el) el.textContent = "Live · " + new Date().toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Europe/Zurich" }); }
 async function loop() { await fetchMarks(); tick(); stamp(); }
 
 async function pollBot() {
@@ -1789,7 +1789,7 @@ function attachModalHover(box, pts) {
     const xpx = (rect.left - boxr.left) + frac * rect.width;
     cross.style.left = xpx + "px"; cross.style.display = "block";
     const d = new Date(p.t);
-    tip.innerHTML = `<b>$${fmtP(p.v)}</b><span>${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>`;
+    tip.innerHTML = `<b>$${fmtP(p.v)}</b><span>${d.toLocaleDateString("de-CH", { month: "short", day: "numeric", timeZone: "Europe/Zurich" })} ${d.toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Zurich" })}</span>`;
     let tl = xpx + 12; if (tl > box.clientWidth - 132) tl = xpx - 132; if (tl < 0) tl = 0;
     tip.style.left = tl + "px"; tip.style.top = "20px"; tip.style.display = "block";
   };
@@ -2121,7 +2121,7 @@ function chillLoop(ts) {
     const el = document.getElementById("chillScene"); if (el) el.textContent = s.name; }
   CHILL_SCENES[CHILL.scene].draw(CHILL.x, dt, CHILL.W, CHILL.H);
   const ck = document.getElementById("chillClock");
-  if (ck && (CHILL.t % 1) < dt) ck.textContent = new Date().toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" });
+  if (ck && (CHILL.t % 1) < dt) ck.textContent = new Date().toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Zurich" });
   CHILL.raf = requestAnimationFrame(chillLoop);
 }
 function chillOpen() {
@@ -2129,7 +2129,7 @@ function chillOpen() {
   CHILL.c = document.getElementById("chillCanvas"); CHILL.x = CHILL.c.getContext("2d");
   ov.classList.add("on"); CHILL.on = true; CHILL.last = 0; CHILL.sw = 99; CHILL.scene = -1;
   chillResize();
-  const ck = document.getElementById("chillClock"); if (ck) ck.textContent = new Date().toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit" });
+  const ck = document.getElementById("chillClock"); if (ck) ck.textContent = new Date().toLocaleTimeString("de-CH", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Zurich" });
   CHILL.raf = requestAnimationFrame(chillLoop);
 }
 function chillClose() {
