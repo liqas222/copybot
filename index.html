@@ -848,7 +848,7 @@ function btBuildCycles(fills, from, now) {        // pair fills into position cy
     const arr = grp[coin].sort((a, b) => a.time - b.time);
     // Seed runPos from first fill's startPosition so pre-existing positions aren't mistaken for new opens
     let runPos = parseFloat(arr[0]?.startPosition ?? 0);
-    let openT = null, openPx = 0, side = null, rawCoin = null, lastPx = 0;
+    let openT = null, openPx = 0, side = null, rawCoin = null, lastPx = 0, cyFills = [];
     for (const f of arr) {
       const sz = parseFloat(f.sz || 0);
       lastPx = parseFloat(f.px || 0);
@@ -858,17 +858,18 @@ function btBuildCycles(fills, from, now) {        // pair fills into position cy
       runPos = prev + (f.side === "B" ? sz : -sz);
       // NEW open only: position was flat, now non-flat (not a scale-in / Nachkauf)
       if (Math.abs(prev) < 1e-9 && Math.abs(runPos) > 1e-9) {
-        openT = f.time; openPx = lastPx; side = runPos > 0 ? "LONG" : "SHORT"; rawCoin = f.coin || coin;
+        openT = f.time; openPx = lastPx; side = runPos > 0 ? "LONG" : "SHORT"; rawCoin = f.coin || coin; cyFills = [];
       }
+      // collect every fill that belongs to the currently-open cycle (adds, partial closes, final close)
+      if (openT != null) cyFills.push({ t: f.time, px: lastPx });
       // Full close: position back to flat
       if (Math.abs(prev) > 1e-9 && Math.abs(runPos) < 1e-9 && openT != null) {
-        cycles.push({ coin, rawCoin, side, entry: openPx, openT, closeT: f.time, exitPx: lastPx });
+        cycles.push({ coin, rawCoin, side, entry: openPx, openT, closeT: f.time, exitPx: lastPx, fills: cyFills });
         openT = null;
       }
     }
     if (openT != null) {                          // whale still in position at window end
-      const mk = (mkt[coin] && mkt[coin].price) || lastPx; // lastPx = most recent fill price
-      cycles.push({ coin, rawCoin, side, entry: openPx, openT, closeT: now, exitPx: mk, stillOpen: true });
+      cycles.push({ coin, rawCoin, side, entry: openPx, openT, closeT: now, exitPx: lastPx, fills: cyFills, stillOpen: true });
     }
   }
   return cycles.filter((cy) => cy.openT >= from && cy.entry > 0);
@@ -876,8 +877,14 @@ function btBuildCycles(fills, from, now) {        // pair fills into position cy
 function btCycleExit(cy, candles, tp, lev, now) { // OUR exit: TP, liq, or follow whale's close
   const tpPx  = cy.side === "LONG" ? cy.entry * (1 + tp / lev)  : cy.entry * (1 - tp / lev);
   const liqPx = cy.side === "LONG" ? cy.entry * (1 - 1 / lev)   : cy.entry * (1 + 1 / lev);
-  // closed by whale → only scan up to his close; still open → scan to now
   const scanEnd = cy.stillOpen ? (now || Date.now()) : cy.closeT;
+  // STEP 1 — whale's own fills (deterministic, no candle fetch): a fill price beyond our TP
+  // proves the price traded through it → count as TP win at that fill's time.
+  for (const f of (cy.fills || [])) {
+    if (f.t < cy.openT || f.t > scanEnd) continue;
+    if (cy.side === "LONG" ? f.px >= tpPx : f.px <= tpPx) return { t: f.t, px: tpPx, reason: "tp" };
+  }
+  // STEP 2 — candles fill the gaps between his fills (catches TP/liq he never traded at)
   for (const k of candles) {
     const t = +k.t;
     if (t < cy.openT || t > scanEnd) continue;
@@ -890,10 +897,12 @@ function btCycleExit(cy, candles, tp, lev, now) { // OUR exit: TP, liq, or follo
       if (lo <= tpPx)  return { t, px: tpPx,  reason: "tp"  };
     }
   }
-  // no TP/liq hit within the window
+  // STEP 3 — no TP/liq hit
   if (cy.stillOpen) {
-    const mk = (mkt[cy.coin] && mkt[cy.coin].price) || cy.exitPx;
-    return { t: now || Date.now(), px: mk, reason: "open" };
+    // value at last candle close (deterministic) → fall back to whale's last fill price; NOT the live mark
+    let px = cy.exitPx;
+    for (let i = candles.length - 1; i >= 0; i--) { const t = +candles[i].t; if (t <= scanEnd) { px = parseFloat(candles[i].c) || px; break; } }
+    return { t: scanEnd, px, reason: "open" };
   }
   // whale closed without triggering our targets → follow his exit
   return { t: cy.closeT, px: cy.exitPx, reason: "whale" };
@@ -916,7 +925,8 @@ async function btFetchFills(addr, from, now) {   // paginate userFillsByTime to 
   return out.filter((f) => f.time >= from && f.time <= now);
 }
 async function btLoadData(addr) {                 // fetch fills + candles ONCE (independent of lev/tp)
-  const now = Date.now(), from = now - 30 * 86400000;
+  // snap to the full hour so repeated runs use the EXACT same 30-day window → reproducible result
+  const now = Math.floor(Date.now() / 3600000) * 3600000, from = now - 30 * 86400000;
   const fills = await btFetchFills(addr, from, now);
   let cycles = btBuildCycles(fills, from, now).sort((a, b) => a.openT - b.openT);
   const cyclesN = cycles.length, fillsN = fills.length;
