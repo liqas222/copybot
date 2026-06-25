@@ -829,24 +829,28 @@ function btBuildCycles(fills, from, now) {        // pair fills into position cy
   const cycles = [];
   for (const coin in grp) {
     const arr = grp[coin].sort((a, b) => a.time - b.time);
-    let runPos = 0, openT = null, openPx = 0, side = null, rawCoin = null;
+    // Seed runPos from first fill's startPosition so pre-existing positions aren't mistaken for new opens
+    let runPos = parseFloat(arr[0]?.startPosition ?? 0);
+    let openT = null, openPx = 0, side = null, rawCoin = null, lastPx = 0;
     for (const f of arr) {
-      const sz = parseFloat(f.sz || 0), px = parseFloat(f.px || 0);
-      const delta = f.side === "B" ? sz : -sz;
-      const prev = runPos;
-      runPos += delta;
+      const sz = parseFloat(f.sz || 0);
+      lastPx = parseFloat(f.px || 0);
+      // Use startPosition from each fill when available for accuracy; fall back to self-tracking
+      const sp = f.startPosition != null ? parseFloat(f.startPosition) : null;
+      const prev = sp != null ? sp : runPos;
+      runPos = prev + (f.side === "B" ? sz : -sz);
       // NEW open only: position was flat, now non-flat (not a scale-in / Nachkauf)
       if (Math.abs(prev) < 1e-9 && Math.abs(runPos) > 1e-9) {
-        openT = f.time; openPx = px; side = runPos > 0 ? "LONG" : "SHORT"; rawCoin = f.coin || coin;
+        openT = f.time; openPx = lastPx; side = runPos > 0 ? "LONG" : "SHORT"; rawCoin = f.coin || coin;
       }
       // Full close: position back to flat
       if (Math.abs(prev) > 1e-9 && Math.abs(runPos) < 1e-9 && openT != null) {
-        cycles.push({ coin, rawCoin, side, entry: openPx, openT, closeT: f.time, exitPx: px });
+        cycles.push({ coin, rawCoin, side, entry: openPx, openT, closeT: f.time, exitPx: lastPx });
         openT = null;
       }
     }
     if (openT != null) {                          // whale still in position at window end
-      const mk = (mkt[coin] && mkt[coin].price) || openPx;
+      const mk = (mkt[coin] && mkt[coin].price) || lastPx; // lastPx = most recent fill price
       cycles.push({ coin, rawCoin, side, entry: openPx, openT, closeT: now, exitPx: mk, stillOpen: true });
     }
   }
@@ -908,10 +912,11 @@ async function backtest(addr, tp, lev, start) {
   const cyclesN = cycles.length, fillsN = fills.length;
   const iv = btInterval(now - from), byCoin = {};
   const uniq = Array.from(new Set(cycles.map((c) => c.coin)));
-  await Promise.all(uniq.map(async (coin) => {
+  for (const coin of uniq) {                      // sequential to avoid rate-limiting
     const cy = cycles.find((c) => c.coin === coin);
     byCoin[coin] = await btCandles(coin, cy ? cy.rawCoin : null, from - iv[1], now, iv[0]);
-  }));
+    if (uniq.length > 3) await new Promise((r) => setTimeout(r, 150));
+  }
   for (const cy of cycles) cy.exit = btCycleExit(cy, byCoin[cy.coin] || [], tp, lev, now);
   // event-driven equity simulation (compounding + 5-slot cap)
   let equity = start, peakEq = start, maxDD = 0, wins = 0, losses = 0, count = 0, tpHits = 0, liqs = 0, whaleExits = 0, stillOpen = 0;
