@@ -135,10 +135,10 @@ def tg(msg):
 
 
 # ---------------- HL reads (public) ----------------
-def hl_post(base, body):
+def hl_post(base, body, timeout=10):
     req = urllib.request.Request(base + "/info", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=10) as r:
+    with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read())
 
 _dex_cache = None
@@ -172,15 +172,16 @@ def _fetch_ch(base, addr, dex):
     if dex:
         body["dex"] = dex
     try:
-        return dex, hl_post(base, body)
+        return dex, hl_post(base, body, timeout=6)   # short timeout: a hung dex must not stall the poll
     except Exception:
         return dex, None
 
 def _fetch_all_dexes(base, addr):
-    """Fetch every perp dex's clearinghouseState in parallel (1 round-trip
-    instead of N sequential ones). Returns list of (dex, data|None)."""
+    """Fetch every perp dex's clearinghouseState in ONE parallel batch so the
+    whole read takes ~one timeout regardless of how many dexes exist (HIP-3 has
+    grown to dozens). Returns list of (dex, data|None)."""
     dexes = perp_dexes(base)
-    workers = min(12, max(1, len(dexes)))
+    workers = min(64, max(1, len(dexes)))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         return list(pool.map(lambda dx: _fetch_ch(base, addr, dx), dexes))
 
@@ -741,8 +742,12 @@ def run_paper():
 
     while True:
         try:
+            _t0 = time.time()
             today = datetime.datetime.now(datetime.timezone.utc).date()
             whale, okdex = get_positions_ex(SOURCE_URL, WHALE)
+            _dt = time.time() - _t0
+            if _dt > 8:   # surfaces in `journalctl -u copybot` if reads are stalling
+                print("SLOW poll: whale read took %.1fs (%d/%d dexes ok)" % (_dt, len(okdex), len(perp_dexes(SOURCE_URL))))
             if COIN_WHITELIST is not None:
                 whale = {k: v for k, v in whale.items() if v["bare"] in COIN_WHITELIST}
             try:    mids = hl_post(SOURCE_URL, {"type": "allMids"})
