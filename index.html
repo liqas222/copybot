@@ -327,7 +327,7 @@
     </div>
     <div class="kpis" id="kpis">
       <div class="kpi k-bot"><span class="kpilabel">Copy-Bot · Paper</span><span class="kpival num" id="kBotEq">—</span><span class="kpisub" id="kBotDay">—</span></div>
-      <div class="kpi k-me"><span class="kpilabel">My Account · Live</span><span class="kpival num" id="kMyEq">—</span><span class="kpisub" id="kMyPnl">—</span></div>
+      <div class="kpi k-me"><span class="kpilabel">My Account · Total</span><span class="kpival num" id="kMyEq">—</span><span class="kpisub" id="kMyPnl">—</span></div>
       <div class="kpi"><span class="kpilabel">Bot Win-Rate · 30d</span><span class="kpival num" id="kWin">—</span><span class="kpisub" id="kWinSub">—</span></div>
       <div class="kpi"><span class="kpilabel">Open Positions</span><span class="kpival num" id="kSlots">—</span><span class="kpisub" id="kSlotsSub">bot slots</span></div>
       <div class="kpi"><span class="kpilabel">Realized · All-time</span><span class="kpival num" id="kReal">—</span><span class="kpisub" id="kRealSub">bot</span></div>
@@ -1058,10 +1058,14 @@ function tickMine() {
   const liveAcct = myBase.accountValue + (upnl - myBase.baseUpnl);
   if (myCells.acct) setCell(myCells.acct, fmtUsdC(liveAcct));
   if (myCells.pnl) { myCells.pnl.classList.toggle("pos", upnl >= 0); myCells.pnl.classList.toggle("neg", upnl < 0); setCell(myCells.pnl.querySelector(".v"), fmtSignedC(upnl)); }
-  // top KPI band — my live account
-  const kEq = document.getElementById("kMyEq"); if (kEq && liveAcct) kEq.textContent = fmtUsdC(liveAcct);
+  // top KPI band — my live account = Perp account value + Spot USDC (total net worth)
+  const total = liveAcct + (mySpot || 0);
+  const kEq = document.getElementById("kMyEq"); if (kEq) kEq.textContent = fmtUsdC(total);
   const kP = document.getElementById("kMyPnl");
-  if (kP) { kP.textContent = (upnl >= 0 ? "▲ " : "▼ ") + fmtSignedC(upnl) + " unreal."; kP.className = "kpisub " + (upnl >= 0 ? "pos" : "neg"); }
+  if (kP) {
+    if (MYPOS.length) { kP.textContent = (upnl >= 0 ? "▲ " : "▼ ") + fmtSignedC(upnl) + " unreal."; kP.className = "kpisub " + (upnl >= 0 ? "pos" : "neg"); }
+    else { kP.textContent = "Perp " + fmtUsdC(liveAcct) + " · Spot " + fmtUsdC(mySpot || 0); kP.className = "kpisub"; }
+  }
 }
 
 function checkChanges() {
