@@ -61,7 +61,7 @@
   .tkitem .p { color: var(--muted); font-family: var(--mono); font-variant-numeric: tabular-nums; }
   .tkitem .g { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 12px; }
   .tkloading { color: var(--muted); font-size: 13px; padding-left: 4px; }
-  .mwgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .mwgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
   .mwcard { border: 1px solid var(--line); border-radius: 11px; padding: 11px 12px; background: #0b0f15; }
   .mwtop { display: flex; align-items: center; justify-content: space-between; }
   .mwcoin { font-weight: 600; font-size: 13px; letter-spacing: .4px; }
@@ -164,15 +164,17 @@
   @media (max-width: 1240px) { .layout { grid-template-columns: 280px minmax(0, 1fr); } .col-right { grid-column: 1 / -1; } }
   @media (max-width: 880px) { .layout { grid-template-columns: 1fr; } .col-right { grid-column: auto; } }
 
-  .panel { position: relative; background: linear-gradient(180deg, #10161e, var(--panel)); border: 1px solid var(--line); border-radius: 14px; margin-bottom: 16px; overflow: hidden;
-    box-shadow: 0 1px 0 rgba(255,255,255,.025) inset, 0 14px 30px -26px #000; }
-  .panel::before, .panel::after { content: ""; position: absolute; width: 9px; height: 9px; pointer-events: none; opacity: .35; z-index: 2; }
-  .panel::before { top: 6px; left: 6px; border-top: 1.5px solid var(--accent); border-left: 1.5px solid var(--accent); }
-  .panel::after { bottom: 6px; right: 6px; border-bottom: 1.5px solid var(--accent); border-right: 1.5px solid var(--accent); }
+  .colhd { font-family: var(--mono); font-size: 10.5px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted);
+           display: flex; align-items: center; gap: 10px; padding: 2px 4px 12px; }
+  .colhd::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--line2), transparent); }
+  .panel { position: relative; background: linear-gradient(180deg, #11171f, var(--panel)); border: 1px solid var(--line); border-radius: 14px; margin-bottom: 16px; overflow: hidden;
+    box-shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 18px 36px -28px #000; transition: border-color .2s, transform .2s; }
+  .panel:hover { border-color: var(--line2); }
   .side .panel { margin-bottom: 16px; }
   .phead { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
-           padding: 13px 16px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.015); }
-  .wlabel { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .9px; color: var(--label); margin-right: 10px; }
+           padding: 13px 16px; border-bottom: 1px solid var(--line); background: linear-gradient(180deg, rgba(255,255,255,.022), transparent); }
+  .wlabel { position: relative; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .9px; color: var(--label); margin-right: 10px; padding-left: 11px; }
+  .wlabel::before { content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 13px; border-radius: 2px; background: var(--accent); box-shadow: 0 0 8px rgba(94,234,212,.5); }
   .waddr { color: var(--accent); text-decoration: none; font-family: var(--mono); font-size: 12.5px; }
   .waddr:hover { text-decoration: underline; }
   .meta { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
@@ -304,12 +306,13 @@
     </div>
     <div class="layout">
       <aside class="side col-left">
+        <div class="colhd">My Account</div>
         <section class="panel" id="myPortfolio"><header class="phead"><span class="wlabel">My Portfolio</span></header><div class="state small">Loading…</div></section>
         <section class="panel" id="myPerf"><header class="phead"><span class="wlabel">My Performance</span></header><div class="state small">Loading…</div></section>
-        <section class="panel" id="marketWatch"><header class="phead"><span class="wlabel">Market Watch</span><span class="meta">24h</span></header><div class="state small">Loading…</div></section>
-        <section class="panel" id="myClosed"><header class="phead"><span class="wlabel">Closed Trades</span></header><div class="state small">Loading…</div></section>
+        <section class="panel" id="myClosed"><header class="phead"><span class="wlabel">My Closed Trades</span></header><div class="state small">Loading…</div></section>
       </aside>
       <main class="col-mid">
+        <div class="colhd">Watchlist &amp; Markets</div>
         <section class="panel" id="trackPanel">
           <header class="phead"><span class="wlabel">Tracked Wallets</span><span class="meta" id="trackCount"></span></header>
           <div class="pbody">
@@ -323,11 +326,13 @@
           </div>
         </section>
         <div id="app"><div class="state">Loading positions…</div></div>
+        <section class="panel" id="marketWatch"><header class="phead"><span class="wlabel">Market Watch</span><span class="meta">24h</span></header><div class="state small">Loading…</div></section>
       </main>
       <aside class="side col-right">
+        <div class="colhd">Copy-Bot · Paper</div>
         <section class="panel" id="botPortfolio"><header class="phead"><span class="wlabel">Copy-Bot</span><span class="botbadge off" id="botBadge">⚪</span></header><div class="state small">…</div></section>
         <section class="panel" id="botPosWrap" style="display:none"></section>
-        <section class="panel" id="botClosed"><header class="phead"><span class="wlabel">Closed Trades</span></header><div class="state small">…</div></section>
+        <section class="panel" id="botClosed"><header class="phead"><span class="wlabel">Bot Closed Trades</span></header><div class="state small">…</div></section>
         <section class="panel" id="botPerf"><header class="phead"><span class="wlabel">Copy-Bot Performance</span></header><div class="state small">…</div></section>
         <section class="panel" id="botSettings"><header class="phead"><span class="wlabel">Copy-Bot Settings</span></header><div class="state small">…</div></section>
         <section class="panel" id="botTg"><header class="phead"><span class="wlabel">Notifications</span></header><div class="state small">…</div></section>
