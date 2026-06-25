@@ -828,15 +828,25 @@ function btInterval(span) {
   }
   throw lastErr || new Error("postRetry failed");
 }
-async function btCandles(coin, rawCoin, from, to, ivName) {
-  const coins = [coin, rawCoin].filter((c, i, a) => c && a.indexOf(c) === i);
-  for (const cn of coins) {
+let _btCoinResolve = {};   // bare coin -> working candle-coin string (or false if none works anywhere)
+async function btCandles(coin, rawCoin, from, to, ivName, dexes) {
+  if (_btCoinResolve[coin] === false) return [];                 // known: no candles on any dex → skip probing
+  // candidate coin strings: cached winner → bare → dex-prefixed raw → every known builder/stock dex prefix
+  const cands = [];
+  if (_btCoinResolve[coin]) cands.push(_btCoinResolve[coin]);
+  cands.push(coin);
+  if (rawCoin && rawCoin !== coin) cands.push(rawCoin);
+  for (const dx of (dexes || [])) if (dx) cands.push(dx + ":" + coin);
+  const seen = new Set();
+  for (const cn of cands) {
+    if (seen.has(cn)) continue; seen.add(cn);
     try {
       const c = await postRetry({ type: "candleSnapshot", req: { coin: cn, interval: ivName, startTime: from, endTime: to } });
       const arr = Array.isArray(c) ? c : [];
-      if (arr.length) { arr.sort((a, b) => (+a.t) - (+b.t)); return arr; }
-    } catch (e) { /* try next */ }
+      if (arr.length) { arr.sort((a, b) => (+a.t) - (+b.t)); _btCoinResolve[coin] = cn; return arr; }
+    } catch (e) { /* try next candidate */ }
   }
+  _btCoinResolve[coin] = false;                                  // remember failure so other trades of this coin don't re-probe
   return [];
 }
 function btBuildCycles(fills, from, now) {        // pair fills into position cycles (new open -> close only)
@@ -929,6 +939,7 @@ async function btLoadData(addr, onProgress) {     // fetch fills + FINE per-trad
   const fills = await btFetchFills(addr, from, now);
   let cycles = btBuildCycles(fills, from, now).sort((a, b) => a.openT - b.openT);
   const cyclesN = cycles.length, fillsN = fills.length;
+  const dexes = await getDexes();                  // builder/stock perp dex names for candle-coin resolution
   // Per-trade fine candles: pick the finest interval that fits the trade's own duration.
   // Short trades → 1m candles → real intraday wicks → real liquidations detected.
   let noData = 0;
@@ -936,7 +947,7 @@ async function btLoadData(addr, onProgress) {     // fetch fills + FINE per-trad
     const cy = cycles[i];
     const span = Math.max(cy.closeT - cy.openT, 60000);
     const iv = btInterval(span);                  // 1m for trades up to ~3 days, then coarser
-    cy.candles = await btCandles(cy.coin, cy.rawCoin, cy.openT - iv[1], cy.closeT + iv[1], iv[0]);
+    cy.candles = await btCandles(cy.coin, cy.rawCoin, cy.openT - iv[1], cy.closeT + iv[1], iv[0], dexes);
     cy.candleIv = iv[0];
     if (!cy.candles.length) { cy.noData = true; noData++; }
     if (onProgress) onProgress(i + 1, cycles.length);
