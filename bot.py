@@ -364,12 +364,16 @@ class Handler(BaseHTTPRequestHandler):
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
         return q.get("token", [""])[0] == DASH_TOKEN
 
-    def _send(self, code, body, ctype="application/json"):
+    def _send(self, code, body, ctype="application/json", no_cache=False):
         if isinstance(body, str):
             body = body.encode()
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Access-Control-Allow-Origin", "*")
+        if no_cache:
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
         self.end_headers()
         self.wfile.write(body)
 
@@ -380,7 +384,7 @@ class Handler(BaseHTTPRequestHandler):
                 html = open(os.path.join(HERE, "index.html"), encoding="utf-8").read()
             except Exception:
                 return self._send(404, "index.html nicht gefunden (neben bot.py legen)", "text/plain")
-            return self._send(200, html.replace("__DASH_TOKEN__", DASH_TOKEN), "text/html; charset=utf-8")
+            return self._send(200, html.replace("__DASH_TOKEN__", DASH_TOKEN), "text/html; charset=utf-8", no_cache=True)
         if path == "/status":
             if not self._auth():
                 return self._send(403, json.dumps({"error": "forbidden"}))
