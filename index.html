@@ -1796,7 +1796,7 @@ function initNav() {
 /* ---------- Whale Finder: rank Hyperliquid leaderboard, optionally match the copied whale ---------- */
 const LB_URL = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard";
 let _lb = null, finderWindow = "month", finderRunning = false;
-const FINDER_MATCH_N = 60;   // how many top-ROI traders to deep-compare in "match" mode (1 fills-fetch each)
+const FINDER_MATCH_N = 100;   // how many top-ROI traders to deep-compare in "match" mode (1 fills-fetch each)
 const _coinsCache = {};
 function fmtBig(x) { const a = Math.abs(x); if (a >= 1e9) return (x/1e9).toFixed(2)+"B"; if (a >= 1e6) return (x/1e6).toFixed(2)+"M"; if (a >= 1e3) return (x/1e3).toFixed(1)+"k"; return x.toFixed(0); }
 function fmtBigUsd(x) { return (x < 0 ? "-$" : "$") + fmtBig(Math.abs(x)); }
