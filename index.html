@@ -325,11 +325,12 @@
           <header class="phead"><span class="wlabel">Copy Backtest</span><span class="meta">30d</span></header>
           <div class="pbody" style="display:grid;grid-template-columns:260px 1fr;gap:24px;align-items:start">
             <div class="btcontrols">
-              <input id="btAddr" class="tgin" type="text" placeholder="0x… Wallet (leer = kopierte Wallet)" autocomplete="off" spellcheck="false" style="width:100%;margin-bottom:10px">
+              <input id="btAddr" class="tgin" type="text" placeholder="0x… Wallet (leer = kopierte Wallet)" autocomplete="off" spellcheck="false" style="width:100%;margin-bottom:10px" oninput="btDataCache={addr:null,data:null}">
               <div class="setrow"><label>Take-Profit</label><span class="ingrp"><input id="btTp" class="numin" type="number" min="1" max="1000" step="1" value="12"><span class="unit">% ROE</span></span></div>
               <div class="setrow"><label>Hebel</label><span class="ingrp"><input id="btLev" class="numin" type="number" min="1" max="100" step="1" value="6"><span class="unit">×</span></span></div>
               <div class="setrow"><label>Start balance</label><span class="ingrp"><input id="btStart" class="numin" type="number" min="1" step="100" value="1000"><span class="unit">$</span></span></div>
               <button class="btn" style="margin-top:8px;width:100%" onclick="runBacktest()">▶ Run backtest</button>
+              <button class="btn" style="margin-top:8px;width:100%;border-color:rgba(60,200,140,.5)" onclick="runBestStrategy()">🏆 Beste Strategie finden</button>
             </div>
             <div id="btResult"><div class="setnote">Simuliert die letzten 30 Tage des kopierten Whales mit deiner Strategie: 6× Hebel, 20% Margin/Trade, max 5 Positionen.</div></div>
           </div>
@@ -914,8 +915,7 @@ async function btFetchFills(addr, from, now) {   // paginate userFillsByTime to 
   for (const f of all) { const k = f.time + "|" + (f.hash || f.oid || f.tid || ""); if (seen.has(k)) continue; seen.add(k); out.push(f); }
   return out.filter((f) => f.time >= from && f.time <= now);
 }
-async function backtest(addr, tp, lev, start) {
-  const FRAC = 0.20, MAXPOS = 5;
+async function btLoadData(addr) {                 // fetch fills + candles ONCE (independent of lev/tp)
   const now = Date.now(), from = now - 30 * 86400000;
   const fills = await btFetchFills(addr, from, now);
   let cycles = btBuildCycles(fills, from, now).sort((a, b) => a.openT - b.openT);
@@ -927,6 +927,11 @@ async function backtest(addr, tp, lev, start) {
     byCoin[coin] = await btCandles(coin, cy ? cy.rawCoin : null, from - iv[1], now, iv[0]);
     if (uniq.length > 3) await new Promise((r) => setTimeout(r, 150));
   }
+  return { cycles, byCoin, now, fillsN, cyclesN };
+}
+function btSimulate(data, tp, lev, start) {        // pure computation: exits + equity for a given lev/tp
+  const FRAC = 0.20, MAXPOS = 5;
+  const { cycles, byCoin, now, fillsN, cyclesN } = data;
   for (const cy of cycles) cy.exit = btCycleExit(cy, byCoin[cy.coin] || [], tp, lev, now);
   // event-driven equity simulation (compounding + 5-slot cap)
   let equity = start, peakEq = start, maxDD = 0, wins = 0, losses = 0, count = 0, tpHits = 0, liqs = 0, whaleExits = 0, stillOpen = 0;
@@ -960,7 +965,22 @@ async function backtest(addr, tp, lev, start) {
     count++;
   }
   settle(Infinity);
-  return { equity, pnl: equity - start, pct: start > 0 ? (equity - start) / start * 100 : 0, count, wins, losses, maxDD, tpHits, liqs, whaleExits, stillOpen, fillsN, cyclesN, lev };
+  return { equity, pnl: equity - start, pct: start > 0 ? (equity - start) / start * 100 : 0, count, wins, losses, maxDD, tpHits, liqs, whaleExits, stillOpen, fillsN, cyclesN, lev, tp };
+}
+async function backtest(addr, tp, lev, start) {
+  const data = await btLoadData(addr);
+  return btSimulate(data, tp, lev, start);
+}
+// sweep lev × tp grid on the SAME loaded data, return best-by-% plus the grid
+function btBestStrategy(data, start) {
+  const LEVS = [2, 3, 5, 6, 8, 10, 15, 20, 25, 40];
+  const TPS  = [0.05, 0.08, 0.10, 0.12, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50];
+  let best = null;
+  for (const lev of LEVS) for (const tp of TPS) {
+    const r = btSimulate(data, tp, lev, start);
+    if (!best || r.pct > best.pct) best = r;
+  }
+  return best;
 }
 function renderBacktest(r, addr) {
   const out = document.getElementById("btResult"); if (!out) return;
@@ -979,21 +999,71 @@ function renderBacktest(r, addr) {
     </div>
     <div class="setnote">Entry = Whale-Entry · ${r.lev}× Hebel · 20% Margin/Trade · max 5 gleichzeitig · Exit = eigener TP/Liq unabhängig vom Whale · Gebühren/Funding nicht modelliert</div>`;
 }
-async function runBacktest() {
-  if (backtestRunning) return;
+let btDataCache = { addr: null, data: null };     // reuse loaded fills/candles between runs for the same wallet
+function btReadInputs() {
   const out = document.getElementById("btResult");
   const tp = parseFloat((document.getElementById("btTp") || {}).value) / 100;
   const lev = parseFloat((document.getElementById("btLev") || {}).value) || 6;
   const start = parseFloat((document.getElementById("btStart") || {}).value);
-  if (!(tp > 0) || !(start > 0) || !(lev > 0)) { if (out) out.innerHTML = `<div class="setnote err">Bitte gültige Werte eingeben.</div>`; return; }
+  if (!(tp > 0) || !(start > 0) || !(lev > 0)) { if (out) out.innerHTML = `<div class="setnote err">Bitte gültige Werte eingeben.</div>`; return null; }
   let addr = (((document.getElementById("btAddr") || {}).value) || "").trim();
   if (!addr) { const cw = (WALLETS || []).find((w) => w.copied); addr = cw ? cw.addr : ""; }
-  if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) { if (out) out.innerHTML = `<div class="setnote err">Bitte eine gültige Wallet-Adresse (0x…) eingeben.</div>`; return; }
+  if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) { if (out) out.innerHTML = `<div class="setnote err">Bitte eine gültige Wallet-Adresse (0x…) eingeben.</div>`; return null; }
+  return { tp, lev, start, addr, out };
+}
+async function btGetData(addr, out, label) {
+  if (btDataCache.addr === addr && btDataCache.data) return btDataCache.data;
+  if (out) out.innerHTML = `<div class="state small">${label} für ${addr.slice(0, 6)}…${addr.slice(-4)} — Trades &amp; Candles werden geladen…</div>`;
+  const data = await btLoadData(addr);
+  btDataCache = { addr, data };
+  return data;
+}
+async function runBacktest() {
+  if (backtestRunning) return;
+  const inp = btReadInputs(); if (!inp) return;
+  const { tp, lev, start, addr, out } = inp;
   backtestRunning = true;
-  if (out) out.innerHTML = `<div class="state small">Backtest läuft für ${addr.slice(0, 6)}…${addr.slice(-4)} — Trades &amp; Candles werden geladen.</div>`;
-  try { renderBacktest(await backtest(addr, tp, lev, start), addr); }
+  try { const data = await btGetData(addr, out, "Backtest läuft"); renderBacktest(btSimulate(data, tp, lev, start), addr); }
   catch (e) { console.error("backtest error", e); if (out) out.innerHTML = `<div class="setnote err">Backtest fehlgeschlagen: ${e && e.message ? e.message : e}. Nochmal versuchen.</div>`; }
   backtestRunning = false;
+}
+async function runBestStrategy() {
+  if (backtestRunning) return;
+  const inp = btReadInputs(); if (!inp) return;
+  const { start, addr, out } = inp;
+  backtestRunning = true;
+  try {
+    const data = await btGetData(addr, out, "Beste Strategie wird gesucht");
+    if (out) out.innerHTML = `<div class="state small">Teste Hebel × TP Kombinationen…</div>`;
+    await new Promise((r) => setTimeout(r, 30));   // let the UI paint before the (synchronous) sweep
+    const best = btBestStrategy(data, start);
+    renderBestStrategy(best, addr, data);
+    // sync the input fields to the winning combo so a normal "Run backtest" matches
+    const tpEl = document.getElementById("btTp"), levEl = document.getElementById("btLev");
+    if (tpEl) tpEl.value = Math.round(best.tp * 100);
+    if (levEl) levEl.value = best.lev;
+  } catch (e) { console.error("best-strategy error", e); if (out) out.innerHTML = `<div class="setnote err">Suche fehlgeschlagen: ${e && e.message ? e.message : e}. Nochmal versuchen.</div>`; }
+  backtestRunning = false;
+}
+function renderBestStrategy(r, addr, data) {
+  const out = document.getElementById("btResult"); if (!out) return;
+  const pos = r.pnl >= 0;
+  const who = addr ? `<a class="waddr" href="https://hypurrscan.io/address/${addr}" target="_blank" rel="noopener">${addr.slice(0, 6)}…${addr.slice(-4)}</a>` : "";
+  out.innerHTML = `
+    <div class="hero" style="margin-bottom:8px"><span class="herolabel">🏆 Beste Strategie · 30 days ${who}</span><span class="heroval num ${pos ? "pos" : "neg"}" style="font-size:2.2rem">${(r.pct >= 0 ? "+" : "") + r.pct.toFixed(1)}%</span></div>
+    <div class="hero" style="margin-bottom:16px;background:rgba(60,200,140,.08);border-radius:10px;padding:10px 14px">
+      <span class="herolabel">Optimaler Hebel &amp; Take-Profit</span>
+      <span class="heroval num pos" style="font-size:1.5rem">${r.lev}× · TP ${Math.round(r.tp * 100)}%</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px 24px;margin-bottom:12px">
+      <div class="statrow"><span>End balance</span><span class="num">${fmtUsdC(r.equity)}</span></div>
+      <div class="statrow"><span>PnL</span><span class="num ${pos ? "pos" : "neg"}">${fmtSignedC(r.pnl)}</span></div>
+      <div class="statrow"><span>Trades simuliert</span><span class="num">${r.count}</span></div>
+      <div class="statrow"><span>Win rate</span><span class="num">${r.count ? Math.round(100 * r.wins / r.count) : 0}% · ${r.wins}W / ${r.losses}L</span></div>
+      <div class="statrow"><span>Max drawdown</span><span class="num neg">-${(r.maxDD * 100).toFixed(1)}%</span></div>
+      <div class="statrow" title="TP-Treffer · Liquidationen · Whale-Exit · Noch offen"><span>TP · Liq · Whale · Offen</span><span class="num">${r.tpHits} · ${r.liqs} · ${r.whaleExits} · ${r.stillOpen}</span></div>
+    </div>
+    <div class="setnote">Bestes Ergebnis aus 100 Kombinationen (Hebel 2–40× × TP 5–50%) auf denselben Whale-Trades. Hebel &amp; TP oben wurden auf den Gewinner gesetzt — „Run backtest" zeigt die Details. Höchste Rendite ≠ sicherste: prüfe Max Drawdown &amp; Liquidationen.</div>`;
 }
 
 /* ---------- format ---------- */
