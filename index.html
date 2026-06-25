@@ -110,6 +110,27 @@
   .mmcard:hover { background: rgba(255,255,255,.03); border-color: var(--line); }
   .mmcoin { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; font-size: 13px; letter-spacing: .3px; }
   .mmprice { font-size: 13px; } .mmchg { font-size: 12.5px; } .mmvol { font-size: 12px; color: var(--muted); }
+  .fndctrl { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+  .fndtabs { display: inline-flex; gap: 6px; }
+  .fndtabs .rbtn { flex: none; padding: 5px 14px; }
+  .fndchk { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+  .fndchk input { accent-color: var(--purple); }
+  .fndnote, .fndhead { color: var(--muted); }
+  .fndnote { font-size: 11.5px; margin-bottom: 10px; }
+  .fndtable { display: flex; flex-direction: column; }
+  .fndhead, .fndrow { display: grid; grid-template-columns: 36px 1.6fr .7fr .8fr .8fr auto; gap: 12px; align-items: center; }
+  .fndtable.match .fndhead, .fndtable.match .fndrow { grid-template-columns: 36px 1.5fr .7fr .8fr .8fr .6fr auto; }
+  .fndhead { font-size: 10.5px; text-transform: uppercase; letter-spacing: .8px; padding: 0 10px 8px; border-bottom: 1px solid var(--line); }
+  .fndhead span:nth-child(n+3), .fndrow > span:nth-child(n+3) { text-align: right; justify-content: flex-end; }
+  .fndrow { padding: 10px; border-radius: 10px; border: 1px solid transparent; transition: background .12s; }
+  .fndrow:hover { background: rgba(255,255,255,.03); }
+  .fndrank { color: var(--dim); font-family: var(--mono); font-size: 12px; }
+  .fndaddr { display: flex; flex-direction: column; gap: 2px; align-items: flex-start !important; min-width: 0; }
+  .fndaddr .waddr { font-family: var(--ui); font-size: 13.5px; font-weight: 600; color: var(--text); }
+  .fndwr { font-size: 10.5px; color: var(--muted); font-family: var(--mono); }
+  .fndmatch { font-family: var(--mono); padding: 2px 8px; border-radius: 999px; font-size: 12px;
+    background: linear-gradient(90deg, rgba(99,102,241,.25), rgba(236,72,153,.25)); border: 1px solid rgba(168,85,247,.35); color: #fff; }
+  .fndtracked { font-size: 11px; color: var(--purple); font-family: var(--mono); }
   .tkitem { cursor: pointer; }
   .modal { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
   .modalbg { position: absolute; inset: 0; background: rgba(4,6,10,.74); backdrop-filter: blur(3px); }
@@ -352,6 +373,7 @@
         <button class="navitem" data-view="me" data-title="My Account" data-sub="Your live Hyperliquid wallet"><span class="ni-ic">👤</span><span class="ni-tx">My Account</span></button>
         <button class="navitem" data-view="bot" data-title="Copy-Bot" data-sub="Paper account · live mirror"><span class="ni-ic">🤖</span><span class="ni-tx">Copy-Bot</span></button>
         <button class="navitem" data-view="markets" data-title="Markets" data-sub="Live Hyperliquid markets"><span class="ni-ic">📈</span><span class="ni-tx">Markets</span></button>
+        <button class="navitem" data-view="finder" data-title="Whale Finder" data-sub="Top leaderboard traders ranked by performance"><span class="ni-ic">🏆</span><span class="ni-tx">Whale Finder</span></button>
         <button class="navitem" data-view="settings" data-title="Settings" data-sub="Strategy &amp; notifications"><span class="ni-ic">⚙️</span><span class="ni-tx">Settings</span></button>
       </nav>
       <div class="navfoot">
@@ -416,6 +438,24 @@
         </section>
         <section class="view" id="view-markets">
           <section class="panel" id="marketWatch"><header class="phead"><span class="wlabel">Market Watch</span><span class="meta">24h</span></header><div class="state small">Loading…</div></section>
+        </section>
+        <section class="view" id="view-finder">
+          <section class="panel" id="finderPanel">
+            <header class="phead"><span class="wlabel">Whale Finder</span><span class="meta">Hyperliquid leaderboard</span></header>
+            <div class="pbody">
+              <div class="fndctrl">
+                <div class="fndtabs" id="fndWindow">
+                  <button class="rbtn" data-w="day">24h</button>
+                  <button class="rbtn" data-w="week">7d</button>
+                  <button class="rbtn on" data-w="month">30d</button>
+                  <button class="rbtn" data-w="allTime">All</button>
+                </div>
+                <label class="fndchk"><input type="checkbox" id="fndMatch"> nur ähnliche wie kopierter Whale</label>
+                <button class="btn primary" id="fndRun" onclick="runFinder()">🔍 Suchen</button>
+              </div>
+              <div id="finderResult"><div class="setnote">Findet Top-Trader vom Hyperliquid-Leaderboard, sortiert nach Rendite (ROI) im gewählten Zeitraum. „Ähnliche" vergleicht Coins, Hebel &amp; Trefferquote mit deinem kopierten Whale.</div></div>
+            </div>
+          </section>
         </section>
         <section class="view" id="view-settings">
           <div class="vgrid">
@@ -1667,6 +1707,7 @@ function showView(name) {
   const t = document.getElementById("viewTitle"), s = document.getElementById("viewSub");
   if (t) t.textContent = title; if (s) s.innerHTML = sub;
   try { localStorage.setItem("ccView", name); } catch (e) {}
+  if (name === "finder" && !_lb && !finderRunning && typeof runFinder === "function") runFinder();
 }
 function initNav() {
   document.querySelectorAll(".navitem").forEach((n) => n.addEventListener("click", () => showView(n.dataset.view)));
@@ -1674,9 +1715,103 @@ function initNav() {
   try { const v = localStorage.getItem("ccView"); if (v && document.getElementById("view-" + v)) start = v; } catch (e) {}
   showView(start);
 }
+/* ---------- Whale Finder: rank Hyperliquid leaderboard, optionally match the copied whale ---------- */
+const LB_URL = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard";
+let _lb = null, finderWindow = "month", finderRunning = false;
+const _coinsCache = {};
+function fmtBig(x) { const a = Math.abs(x); if (a >= 1e9) return (x/1e9).toFixed(2)+"B"; if (a >= 1e6) return (x/1e6).toFixed(2)+"M"; if (a >= 1e3) return (x/1e3).toFixed(1)+"k"; return x.toFixed(0); }
+function fmtBigUsd(x) { return (x < 0 ? "-$" : "$") + fmtBig(Math.abs(x)); }
+async function lbFetch() {
+  if (_lb) return _lb;
+  const r = await fetch(LB_URL, { cache: "no-store" });
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  const d = await r.json();
+  _lb = (d && (d.leaderboardRows || d.rows || [])) || [];
+  return _lb;
+}
+function lbWindow(row, w) { const a = (row.windowPerformances || []).find((x) => x[0] === w); return a ? a[1] : null; }
+// reliable coin set + win-rate for an address from its fills (closedPnl); cached
+async function whaleProfile(addr) {
+  const key = addr.toLowerCase();
+  if (_coinsCache[key]) return _coinsCache[key];
+  let fills = [];
+  try { const d = await post({ type: "userFills", user: addr }); if (Array.isArray(d)) fills = d; } catch (e) {}
+  const coins = new Set(); let wins = 0, losses = 0;
+  for (const f of fills) {
+    const c = (f.coin || ""); const bare = c.includes(":") ? c.split(":")[1] : c; if (bare) coins.add(bare);
+    const cp = parseFloat(f.closedPnl || 0); if (cp > 0) wins++; else if (cp < 0) losses++;
+  }
+  const prof = { coins, wins, losses, winRate: (wins + losses) ? Math.round(100 * wins / (wins + losses)) : 0, n: fills.length };
+  _coinsCache[key] = prof; return prof;
+}
+function jaccard(a, b) { if (!a.size || !b.size) return 0; let inter = 0; for (const x of a) if (b.has(x)) inter++; return inter / (a.size + b.size - inter); }
+async function runFinder() {
+  if (finderRunning) return;
+  const out = document.getElementById("finderResult");
+  const match = !!(document.getElementById("fndMatch") || {}).checked;
+  finderRunning = true;
+  if (out) out.innerHTML = `<div class="state small">Leaderboard wird geladen…</div>`;
+  try {
+    const rows = await lbFetch();
+    let ranked = rows
+      .map((r) => ({ addr: r.ethAddress || r.user || "", name: r.displayName || "", av: parseFloat(r.accountValue || 0), w: lbWindow(r, finderWindow) }))
+      .filter((r) => r.addr && r.w && r.av >= 20000 && r.w.roi > 0)
+      .sort((a, b) => (b.w.roi || 0) - (a.w.roi || 0));
+    if (!match) { renderFinder(ranked.slice(0, 50), false); finderRunning = false; return; }
+    // similarity to the copied whale
+    const cw = (WALLETS || []).find((w) => w.copied) || (WALLETS || [])[0];
+    if (!cw) { renderFinder(ranked.slice(0, 50), false); finderRunning = false; return; }
+    if (out) out.innerHTML = `<div class="state small">Profil des kopierten Whales wird erstellt…</div>`;
+    const base = await whaleProfile(cw.addr);
+    const cands = ranked.slice(0, 30);
+    for (let i = 0; i < cands.length; i++) {
+      if (out) out.innerHTML = `<div class="state small">Vergleiche Trader… ${i + 1}/${cands.length}</div>`;
+      const p = await whaleProfile(cands[i].addr);
+      cands[i].match = Math.round(100 * jaccard(base.coins, p.coins));
+      cands[i].winRate = p.winRate;
+      await new Promise((r) => setTimeout(r, 90));
+    }
+    cands.sort((a, b) => (b.match - a.match) || (b.w.roi - a.w.roi));
+    renderFinder(cands, true);
+  } catch (e) {
+    console.error("finder", e);
+    if (out) out.innerHTML = `<div class="setnote err">Leaderboard nicht erreichbar (${e && e.message ? e.message : e}). Nochmal versuchen.</div>`;
+  }
+  finderRunning = false;
+}
+function renderFinder(list, match) {
+  const out = document.getElementById("finderResult"); if (!out) return;
+  if (!list.length) { out.innerHTML = `<div class="state small">Keine Trader gefunden.</div>`; return; }
+  const tracked = new Set((WALLETS || []).map((w) => w.addr.toLowerCase()));
+  const head = `<div class="fndhead"><span>#</span><span>Trader</span><span>ROI</span><span>PnL</span><span>Equity</span>${match ? "<span>Match</span>" : ""}<span></span></div>`;
+  const rows = list.map((r, i) => {
+    const roi = (r.w.roi || 0) * 100, pnl = r.w.pnl || 0, up = roi >= 0;
+    const short = r.addr.slice(0, 6) + "…" + r.addr.slice(-4);
+    const isT = tracked.has(r.addr.toLowerCase());
+    return `<div class="fndrow">
+      <span class="fndrank">${i + 1}</span>
+      <span class="fndaddr"><a class="waddr" href="https://hypurrscan.io/address/${r.addr}" target="_blank" rel="noopener">${esc(r.name || short)}</a>${r.winRate != null ? `<span class="fndwr">${r.winRate}% W</span>` : ""}</span>
+      <span class="num ${up ? "pos" : "neg"}">${(up ? "+" : "") + roi.toFixed(0)}%</span>
+      <span class="num ${pnl >= 0 ? "pos" : "neg"}">${fmtBigUsd(pnl)}</span>
+      <span class="num">${fmtBigUsd(r.av)}</span>
+      ${match ? `<span class="num"><span class="fndmatch" style="--m:${r.match || 0}">${r.match || 0}%</span></span>` : ""}
+      <span>${isT ? `<span class="fndtracked">tracked</span>` : `<button class="btn" onclick="trackFromFinder('${r.addr}')">+ Track</button>`}</span>
+    </div>`;
+  }).join("");
+  out.innerHTML = `<div class="fndnote">${match ? "Sortiert nach Ähnlichkeit zum kopierten Whale (Coin-Überlappung), dann ROI." : "Top 50 nach ROI im Zeitraum · Mindest-Equity $20k."}</div>
+    <div class="fndtable${match ? " match" : ""}">${head}${rows}</div>`;
+}
+function trackFromFinder(addr) {
+  const a = document.getElementById("newAddr"); if (a) a.value = addr;
+  showView("watch"); addWallet();
+}
 function init() {
   const b = document.getElementById("soundBtn"); if (b) b.addEventListener("click", toggleSound);
   initNav();
+  document.querySelectorAll("#fndWindow .rbtn").forEach((btn) => btn.addEventListener("click", () => {
+    finderWindow = btn.dataset.w;
+    document.querySelectorAll("#fndWindow .rbtn").forEach((x) => x.classList.toggle("on", x === btn));
+  }));
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeChart(); });
   updateSoundBtn();
   renderMine();
