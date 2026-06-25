@@ -30,7 +30,34 @@
     background-attachment: fixed;
     font: 14.5px/1.5 var(--ui); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
   .num { font-variant-numeric: tabular-nums; font-family: var(--mono); letter-spacing: -.2px; }
-  .wrap { max-width: 2040px; margin: 0 auto; padding: 22px 26px 60px; }
+  /* ---- app shell: sidebar nav + content ---- */
+  .app { display: flex; align-items: stretch; min-height: 100vh; }
+  .nav { width: 232px; flex-shrink: 0; position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column;
+    padding: 20px 14px; border-right: 1px solid var(--line); background: linear-gradient(180deg, rgba(168,85,247,.05), transparent 40%), var(--panel); }
+  .nav .brand { margin: 4px 6px 22px; }
+  .navlist { display: flex; flex-direction: column; gap: 4px; }
+  .navitem { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left; cursor: pointer; font-family: inherit;
+    padding: 11px 12px; border-radius: 11px; border: 1px solid transparent; background: transparent; color: var(--muted);
+    font-size: 14px; font-weight: 500; letter-spacing: .2px; transition: background .15s, color .15s, border-color .15s; }
+  .navitem .ni-ic { font-size: 16px; width: 20px; text-align: center; filter: grayscale(.4); opacity: .85; }
+  .navitem:hover { background: rgba(255,255,255,.04); color: var(--text); }
+  .navitem.active { color: #fff; border-color: rgba(168,85,247,.4);
+    background: linear-gradient(90deg, rgba(99,102,241,.22), rgba(168,85,247,.16) 60%, rgba(236,72,153,.1));
+    box-shadow: 0 8px 24px -14px rgba(168,85,247,.6); }
+  .navitem.active .ni-ic { filter: none; opacity: 1; }
+  .navfoot { margin-top: auto; padding-top: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .content { flex: 1; min-width: 0; padding: 22px 26px 60px; }
+  .topbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+  .tb-title h2 { margin: 0; font-family: "Chakra Petch", var(--ui); font-size: 26px; font-weight: 700; letter-spacing: .5px; color: var(--text); }
+  .tb-sub { color: var(--muted); font-size: 13px; }
+  .views { position: relative; }
+  .view { display: none; animation: viewIn .28s ease-out; }
+  .view.active { display: block; }
+  @keyframes viewIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .vgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; align-items: start; margin-bottom: 16px; }
+  .vgrid .panel { margin-bottom: 0; }
+  @media (max-width: 820px) { .nav { width: 64px; padding: 16px 8px; } .nav .bwords, .navitem .ni-tx, .navfoot { display: none; }
+    .navitem { justify-content: center; padding: 11px 0; } }
   .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
   .top h1 { font-family: "Chakra Petch", var(--ui); font-size: 20px; margin: 0; letter-spacing: 2px; text-transform: uppercase; font-weight: 700;
     background: linear-gradient(90deg, #6366F1, #A855F7, #EC4899, #A855F7, #6366F1); background-size: 200% auto;
@@ -40,18 +67,15 @@
   .brand .logo { color: var(--purple); font-size: 24px; line-height: 1; filter: drop-shadow(0 0 9px rgba(168,85,247,.7)); }
   .bwords h1 { line-height: 1; }
   .bsub { display: block; font-family: var(--mono); font-size: 9.5px; letter-spacing: 2.4px; text-transform: uppercase; color: var(--muted); margin-top: 3px; }
-  .telemetry { display: flex; align-items: center; flex-wrap: wrap; font-family: var(--mono); font-size: 11.5px; letter-spacing: .3px;
-    color: var(--muted); border: 1px solid var(--line); border-radius: 10px; background: linear-gradient(180deg, #0c111a, #0a0e14); padding: 9px 16px; margin-bottom: 18px; }
-  .tcell { display: inline-flex; align-items: center; gap: 7px; padding: 2px 16px; border-right: 1px solid var(--line); }
-  .tcell:first-child { padding-left: 0; }
-  .tcell b { color: var(--label); font-weight: 500; letter-spacing: .6px; }
+  .telemetry { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 10px; font-family: var(--mono); font-size: 10.5px; letter-spacing: .2px;
+    color: var(--muted); border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.02); padding: 10px 12px; }
+  .tcell { display: inline-flex; align-items: center; gap: 5px; }
+  .tcell b { color: var(--label); font-weight: 600; letter-spacing: .4px; }
   .tcell .num { color: var(--text); }
-  .tcell.right { margin-left: auto; border-right: none; padding-right: 0; color: var(--accent); }
-  .tcell.right .num { color: var(--accent); }
   .tdot { width: 7px; height: 7px; border-radius: 50%; background: var(--long); box-shadow: 0 0 7px var(--long); animation: ledPulse 2s ease-in-out infinite; }
   .tdot.bad { background: var(--short); box-shadow: 0 0 7px var(--short); animation: none; }
-  .leds { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-  .led { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); letter-spacing: .3px; text-transform: uppercase; }
+  .leds { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+  .led { display: inline-flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); letter-spacing: .3px; text-transform: uppercase; }
   .led i { width: 8px; height: 8px; border-radius: 50%; background: #3a4250; transition: background .3s, box-shadow .3s; }
   .led.ok i { background: var(--long); box-shadow: 0 0 8px var(--long); animation: ledPulse 2s ease-in-out infinite; }
   .led.bad i { background: var(--short); box-shadow: 0 0 8px var(--short); }
@@ -310,70 +334,88 @@
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="top">
+  <div class="app">
+    <aside class="nav">
       <div class="brand"><span class="logo">⬡</span><div class="bwords"><h1>Command Center</h1><span class="bsub">Copy-Trade Intelligence</span></div></div>
-      <div class="leds" id="leds">
-        <span class="led" id="ledHl"><i></i>Hyperliquid</span>
-        <span class="led" id="ledBot"><i></i>Copy-Bot</span>
-        <span class="led" id="ledTg"><i></i>Telegram</span>
+      <nav class="navlist" id="navlist">
+        <button class="navitem active" data-view="bot" data-title="Copy-Bot" data-sub="Paper account · live mirror"><span class="ni-ic">🤖</span><span class="ni-tx">Copy-Bot</span></button>
+        <button class="navitem" data-view="me" data-title="My Account" data-sub="Your live Hyperliquid wallet"><span class="ni-ic">👤</span><span class="ni-tx">My Account</span></button>
+        <button class="navitem" data-view="watch" data-title="Watchlist" data-sub="Tracked wallets &amp; their positions"><span class="ni-ic">🔭</span><span class="ni-tx">Watchlist</span></button>
+        <button class="navitem" data-view="markets" data-title="Markets" data-sub="Live Hyperliquid markets"><span class="ni-ic">📈</span><span class="ni-tx">Markets</span></button>
+        <button class="navitem" data-view="settings" data-title="Settings" data-sub="Strategy &amp; notifications"><span class="ni-ic">⚙️</span><span class="ni-tx">Settings</span></button>
+      </nav>
+      <div class="navfoot">
+        <div class="leds" id="leds">
+          <span class="led" id="ledHl"><i></i>Hyperliquid</span>
+          <span class="led" id="ledBot"><i></i>Copy-Bot</span>
+          <span class="led" id="ledTg"><i></i>Telegram</span>
+        </div>
+        <div class="telemetry" id="telemetry">
+          <span class="tcell"><i class="tdot" id="feedDot"></i><b>FEED</b> <span id="tFeed">HYPERLIQUID</span></span>
+          <span class="tcell"><b>LAT</b> <span id="tLat" class="num">—</span></span>
+          <span class="tcell"><b>MKTS</b> <span id="tMkts" class="num">—</span></span>
+          <span class="tcell"><b>TRACK</b> <span id="tWallets" class="num">—</span></span>
+          <span class="tcell"><b>SIG</b> <span id="tSignals" class="num">—</span></span>
+          <span class="tcell"><span id="tUtc" class="num">—</span> UTC</span>
+        </div>
       </div>
-      <div class="controls">
-        <button id="soundBtn" class="btn" type="button">🔕 Sound off</button>
-        <span id="updated">Loading…</span>
+    </aside>
+    <main class="content">
+      <div class="topbar">
+        <div class="tb-title"><h2 id="viewTitle">Copy-Bot</h2><span class="tb-sub" id="viewSub">Paper account · live mirror</span></div>
+        <div class="controls"><span id="updated">Loading…</span><button id="soundBtn" class="btn" type="button">🔕 Sound off</button></div>
       </div>
-    </div>
-    <div class="ticker"><div class="ticktrack" id="ticktrack"><span class="tkloading">Loading live markets…</span></div></div>
-    <div class="telemetry" id="telemetry">
-      <span class="tcell"><i class="tdot" id="feedDot"></i><b>FEED</b> <span id="tFeed">HYPERLIQUID</span></span>
-      <span class="tcell"><b>LATENCY</b> <span id="tLat" class="num">—</span></span>
-      <span class="tcell"><b>MARKETS</b> <span id="tMkts" class="num">—</span></span>
-      <span class="tcell"><b>TRACKING</b> <span id="tWallets" class="num">—</span></span>
-      <span class="tcell"><b>SIGNALS</b> <span id="tSignals" class="num">—</span></span>
-      <span class="tcell right"><span id="tUtc" class="num">—</span> UTC</span>
-    </div>
-    <div class="kpis" id="kpis">
-      <div class="kpi k-bot"><span class="kpilabel">Copy-Bot · Paper</span><span class="kpival num" id="kBotEq">—</span><span class="kpisub" id="kBotDay">—</span></div>
-      <div class="kpi k-me"><span class="kpilabel">My Account · Total</span><span class="kpival num" id="kMyEq">—</span><span class="kpisub" id="kMyPnl">—</span></div>
-      <div class="kpi"><span class="kpilabel">Bot Win-Rate · 30d</span><span class="kpival num" id="kWin">—</span><span class="kpisub" id="kWinSub">—</span></div>
-      <div class="kpi"><span class="kpilabel">Open Positions</span><span class="kpival num" id="kSlots">—</span><span class="kpisub" id="kSlotsSub">bot slots</span></div>
-      <div class="kpi"><span class="kpilabel">Realized · All-time</span><span class="kpival num" id="kReal">—</span><span class="kpisub" id="kRealSub">bot</span></div>
-    </div>
-    <div class="layout">
-      <aside class="side col-left">
-        <div class="colhd">My Account</div>
-        <section class="panel" id="myPortfolio"><header class="phead"><span class="wlabel">My Portfolio</span></header><div class="state small">Loading…</div></section>
-        <section class="panel" id="myPerf"><header class="phead"><span class="wlabel">My Performance</span></header><div class="state small">Loading…</div></section>
-        <section class="panel" id="myClosed"><header class="phead"><span class="wlabel">My Closed Trades</span></header><div class="state small">Loading…</div></section>
-      </aside>
-      <main class="col-mid">
-        <div class="colhd">Watchlist &amp; Markets</div>
-        <section class="panel" id="trackPanel">
-          <header class="phead"><span class="wlabel">Tracked Wallets</span><span class="meta" id="trackCount"></span></header>
-          <div class="pbody">
-            <div class="addrow">
-              <input id="newAddr" class="tgin" type="text" placeholder="0x… wallet address to track" autocomplete="off" spellcheck="false">
-              <input id="newLabel" class="tgin labelin" type="text" placeholder="Label (optional)" autocomplete="off">
-              <button class="btn primary" onclick="addWallet()">+ Track</button>
+      <div class="ticker"><div class="ticktrack" id="ticktrack"><span class="tkloading">Loading live markets…</span></div></div>
+      <div class="kpis" id="kpis">
+        <div class="kpi k-bot"><span class="kpilabel">Copy-Bot · Paper</span><span class="kpival num" id="kBotEq">—</span><span class="kpisub" id="kBotDay">—</span></div>
+        <div class="kpi k-me"><span class="kpilabel">My Account · Total</span><span class="kpival num" id="kMyEq">—</span><span class="kpisub" id="kMyPnl">—</span></div>
+        <div class="kpi"><span class="kpilabel">Bot Win-Rate · 30d</span><span class="kpival num" id="kWin">—</span><span class="kpisub" id="kWinSub">—</span></div>
+        <div class="kpi"><span class="kpilabel">Open Positions</span><span class="kpival num" id="kSlots">—</span><span class="kpisub" id="kSlotsSub">bot slots</span></div>
+        <div class="kpi"><span class="kpilabel">Realized · All-time</span><span class="kpival num" id="kReal">—</span><span class="kpisub" id="kRealSub">bot</span></div>
+      </div>
+      <div class="views">
+        <section class="view active" id="view-bot">
+          <div class="vgrid">
+            <section class="panel" id="botPortfolio"><header class="phead"><span class="wlabel">Copy-Bot</span><span class="botbadge off" id="botBadge">⚪</span></header><div class="state small">…</div></section>
+            <section class="panel" id="botPerf"><header class="phead"><span class="wlabel">Copy-Bot Performance</span></header><div class="state small">…</div></section>
+          </div>
+          <section class="panel" id="botPosWrap" style="display:none"></section>
+          <section class="panel" id="botClosed"><header class="phead"><span class="wlabel">Bot Closed Trades</span></header><div class="state small">…</div></section>
+        </section>
+        <section class="view" id="view-me">
+          <div class="vgrid">
+            <section class="panel" id="myPortfolio"><header class="phead"><span class="wlabel">My Portfolio</span></header><div class="state small">Loading…</div></section>
+            <section class="panel" id="myPerf"><header class="phead"><span class="wlabel">My Performance</span></header><div class="state small">Loading…</div></section>
+          </div>
+          <section class="panel" id="myClosed"><header class="phead"><span class="wlabel">My Closed Trades</span></header><div class="state small">Loading…</div></section>
+        </section>
+        <section class="view" id="view-watch">
+          <section class="panel" id="trackPanel">
+            <header class="phead"><span class="wlabel">Tracked Wallets</span><span class="meta" id="trackCount"></span></header>
+            <div class="pbody">
+              <div class="addrow">
+                <input id="newAddr" class="tgin" type="text" placeholder="0x… wallet address to track" autocomplete="off" spellcheck="false">
+                <input id="newLabel" class="tgin labelin" type="text" placeholder="Label (optional)" autocomplete="off">
+                <button class="btn primary" onclick="addWallet()">+ Track</button>
+              </div>
+              <div id="trackMsg" class="setnote"></div>
+              <div class="liqlegend">Liquidität: <span><span class="liqdot hi"></span>liquide</span><span><span class="liqdot mid"></span>mittel</span><span><span class="liqdot lo"></span>illiquide</span><span><span class="liqdot unk"></span>nicht im Hauptmarkt → meiden</span></div>
             </div>
-            <div id="trackMsg" class="setnote"></div>
-            <div class="liqlegend">Liquidität: <span><span class="liqdot hi"></span>liquide</span><span><span class="liqdot mid"></span>mittel</span><span><span class="liqdot lo"></span>illiquide</span><span><span class="liqdot unk"></span>nicht im Hauptmarkt → meiden</span></div>
+          </section>
+          <div id="app"><div class="state">Loading positions…</div></div>
+        </section>
+        <section class="view" id="view-markets">
+          <section class="panel" id="marketWatch"><header class="phead"><span class="wlabel">Market Watch</span><span class="meta">24h</span></header><div class="state small">Loading…</div></section>
+        </section>
+        <section class="view" id="view-settings">
+          <div class="vgrid">
+            <section class="panel" id="botSettings"><header class="phead"><span class="wlabel">Copy-Bot Settings</span></header><div class="state small">…</div></section>
+            <section class="panel" id="botTg"><header class="phead"><span class="wlabel">Notifications</span></header><div class="state small">…</div></section>
           </div>
         </section>
-        <div id="app"><div class="state">Loading positions…</div></div>
-        <section class="panel" id="marketWatch"><header class="phead"><span class="wlabel">Market Watch</span><span class="meta">24h</span></header><div class="state small">Loading…</div></section>
-      </main>
-      <aside class="side col-right">
-        <div class="colhd">Copy-Bot · Paper</div>
-        <section class="panel" id="botPortfolio"><header class="phead"><span class="wlabel">Copy-Bot</span><span class="botbadge off" id="botBadge">⚪</span></header><div class="state small">…</div></section>
-        <section class="panel" id="botPosWrap" style="display:none"></section>
-        <section class="panel" id="botClosed"><header class="phead"><span class="wlabel">Bot Closed Trades</span></header><div class="state small">…</div></section>
-        <section class="panel" id="botPerf"><header class="phead"><span class="wlabel">Copy-Bot Performance</span></header><div class="state small">…</div></section>
-        <section class="panel" id="botSettings"><header class="phead"><span class="wlabel">Copy-Bot Settings</span></header><div class="state small">…</div></section>
-        <section class="panel" id="botTg"><header class="phead"><span class="wlabel">Notifications</span></header><div class="state small">…</div></section>
-      </aside>
-    </div>
-    <div class="foot">Live prices from Hyperliquid · updates while this page is open · not financial advice</div>
+      </div>
+      <div class="foot">Live prices from Hyperliquid · updates while this page is open · not financial advice</div>
+    </main>
   </div>
   <div id="chartModal" class="modal" style="display:none" aria-hidden="true">
     <div class="modalbg" onclick="closeChart()"></div>
@@ -1580,8 +1622,27 @@ function attachModalHover(box, pts) {
   };
   box.onmouseleave = () => { cross.style.display = "none"; tip.style.display = "none"; };
 }
+function showView(name) {
+  document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + name));
+  let title = "", sub = "";
+  document.querySelectorAll(".navitem").forEach((n) => {
+    const on = n.dataset.view === name;
+    n.classList.toggle("active", on);
+    if (on) { title = n.dataset.title || ""; sub = n.dataset.sub || ""; }
+  });
+  const t = document.getElementById("viewTitle"), s = document.getElementById("viewSub");
+  if (t) t.textContent = title; if (s) s.innerHTML = sub;
+  try { localStorage.setItem("ccView", name); } catch (e) {}
+}
+function initNav() {
+  document.querySelectorAll(".navitem").forEach((n) => n.addEventListener("click", () => showView(n.dataset.view)));
+  let start = "bot";
+  try { const v = localStorage.getItem("ccView"); if (v && document.getElementById("view-" + v)) start = v; } catch (e) {}
+  showView(start);
+}
 function init() {
   const b = document.getElementById("soundBtn"); if (b) b.addEventListener("click", toggleSound);
+  initNav();
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeChart(); });
   updateSoundBtn();
   renderMine();
