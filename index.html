@@ -1847,10 +1847,12 @@ function trackFromFinder(addr) {
    The line drifts smoothly via requestAnimationFrame. Pick LONG/SHORT, then the
    line keeps moving until it reaches the TOP (pump) or BOTTOM (dump) to resolve. */
 const PG = { hist: [], level: 0.5, vel: 0, score: 0, streak: 0, best: 0,
-  alive: true, betting: false, dir: null, inited: false, raf: 0, last: 0, flash: 0, flashCol: "" };
+  alive: true, betting: false, dir: null, inited: false, raf: 0, last: 0, flash: 0, flashCol: "",
+  phase: 0, freq: 1, phase2: 0, freq2: 1.7, betT: 0 };
 function pgReset() {
   PG.score = 0; PG.streak = 0; PG.alive = true; PG.betting = false; PG.dir = null;
-  PG.level = 0.5; PG.vel = 0; PG.flash = 0;
+  PG.level = 0.5; PG.vel = 0; PG.flash = 0; PG.betT = 0;
+  PG.phase = Math.random() * 6.28; PG.freq = 0.9; PG.phase2 = Math.random() * 6.28; PG.freq2 = 1.7;
   PG.hist = []; for (let i = 0; i < 240; i++) PG.hist.push(0.5);
   const rb = document.getElementById("pgRestart"); if (rb) rb.style.display = "none";
   pgSetBtns(true);
@@ -1861,7 +1863,11 @@ function pgSetBtns(on) { ["pgLong", "pgShort"].forEach((id) => { const e = docum
 function pgMsg(t, cls) { const e = document.getElementById("pgMsg"); if (e) { e.textContent = t; e.className = "pgmsg" + (cls ? " " + cls : ""); } }
 function pgGuess(dir) {
   if (!PG.alive || PG.betting) return;
-  PG.betting = true; PG.dir = dir; pgSetBtns(false);
+  PG.betting = true; PG.dir = dir; PG.betT = 0;
+  // fresh wave rhythm each round so the path is unpredictable
+  PG.freq = 0.7 + Math.random() * 1.4; PG.phase = Math.random() * 6.28;
+  PG.freq2 = 1.6 + Math.random() * 2.2; PG.phase2 = Math.random() * 6.28;
+  pgSetBtns(false);
   pgMsg(dir === "long" ? "▲ LONG — Linie muss nach OBEN" : "▼ SHORT — Linie muss nach UNTEN", dir === "long" ? "ok" : "err");
 }
 function pgResolve(edge) {           // edge = "up" | "down"
@@ -1881,18 +1887,27 @@ function pgResolve(edge) {           // edge = "up" | "down"
   pgStatsEl();
 }
 function pgTick(dt) {
-  // smooth random walk with damping → geschmeidige Bewegung
-  PG.vel += (Math.random() - 0.5) * 0.9 * dt;
-  PG.vel *= Math.pow(0.9, dt * 60);
-  if (PG.betting) PG.vel += Math.sign(PG.level - 0.5 || (Math.random() - 0.5)) * 0.18 * dt; // commit toward an edge
-  PG.vel = Math.max(-0.32, Math.min(0.32, PG.vel));
-  PG.level += PG.vel * dt;
+  // two superposed sine waves → smooth, undulating, hard-to-read motion
+  PG.phase += PG.freq * dt; PG.phase2 += PG.freq2 * dt;
+  const wave = Math.sin(PG.phase) + 0.5 * Math.sin(PG.phase2);
   if (PG.betting && PG.alive) {
+    PG.betT += dt;
+    PG.vel += wave * (1.4 + PG.betT * 0.13) * dt;     // waves widen over time: swings grow toward the edges
+    PG.vel += (Math.random() - 0.5) * 0.6 * dt;       // noise
+    // commit force grows so it stays suspenseful early, then resolves (~6-8s)
+    PG.vel += Math.sign(PG.level - 0.5 || (Math.random() - 0.5)) * Math.min(PG.betT * 0.045, 0.2) * dt;
+    PG.vel *= Math.pow(0.93, dt * 60);
+    PG.vel = Math.max(-0.6, Math.min(0.6, PG.vel));
+    PG.level += PG.vel * dt;
     if (PG.level >= 0.985) { PG.level = 1; pgResolve("up"); }
     else if (PG.level <= 0.015) { PG.level = 0; pgResolve("down"); }
   } else {
-    // idle: soft walls keep it wandering nicely in the middle
-    if (PG.level > 0.82) PG.vel -= 0.6 * dt;
+    PG.vel += wave * 0.55 * dt;                        // gentle idle waves
+    PG.vel += (Math.random() - 0.5) * 0.4 * dt;
+    PG.vel *= Math.pow(0.9, dt * 60);
+    PG.vel = Math.max(-0.3, Math.min(0.3, PG.vel));
+    PG.level += PG.vel * dt;
+    if (PG.level > 0.82) PG.vel -= 0.6 * dt;           // soft walls keep it wandering mid-chart
     if (PG.level < 0.18) PG.vel += 0.6 * dt;
     PG.level = Math.max(0.06, Math.min(0.94, PG.level));
   }
