@@ -618,11 +618,42 @@ async function reconstructPeak(d) {
   return peak;
 }
 function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+// Take-profit display: "price · +X% ROE · +$Y". From a known TP price OR a TP ROE.
+function tpInfo(d, tpPx, tpRoe) {
+  if (!(d.entry > 0) || !d.lev) return null;
+  let px, roe;
+  if (tpPx > 0) { px = tpPx; const mv = d.side === "LONG" ? (px - d.entry) / d.entry : (d.entry - px) / d.entry; roe = mv * d.lev; }
+  else if (tpRoe != null) { roe = tpRoe; const mv = roe / d.lev; px = d.side === "LONG" ? d.entry * (1 + mv) : d.entry * (1 - mv); }
+  else return null;
+  const profit = d.margin != null ? roe * d.margin : null;
+  return `${fmtPrice(px)} · ${pctSpan(roe * 100)}${profit != null ? " · " + pnlSpan(profit) : ""}`;
+}
+// Find the TP trigger price a wallet has set for a coin (Hyperliquid trigger order).
+async function fetchTp(addr, coin) {
+  try {
+    const o = await post({ type: "frontendOpenOrders", user: addr });
+    for (const x of (Array.isArray(o) ? o : [])) {
+      const c = x.coin || "", bare = c.includes(":") ? c.split(":")[1] : c;
+      if (bare !== coin) continue;
+      const ot = String(x.orderType || "").toLowerCase();
+      if (ot.includes("take profit") || x.tpsl === "tp") {
+        const px = parseFloat(x.triggerPx || x.limitPx || 0);
+        if (px > 0) return px;
+      }
+    }
+  } catch (e) { /* ignore */ }
+  return null;
+}
 function fmtDateTime(ts) { if (!ts) return null; const d = new Date(ts), p = (n) => String(n).padStart(2, "0"); return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; }
 function pnlSpan(v) { return `<span class="${v >= 0 ? "pos" : "neg"}">${fmtSignedC(v)}</span>`; }
 function pctSpan(v) { return `<span class="${v >= 0 ? "pos" : "neg"}">${(v >= 0 ? "+" : "") + v.toFixed(2)}%</span>`; }
 function openTradeModal(d) {
   const sc = d.side === "LONG" ? "long" : "short";
+  // Take-Profit: known directly for bot copies (d.tp = ROE); for your / tracked
+  // open positions, fetch the live TP trigger order from Hyperliquid.
+  const tpSync = d.tp != null ? tpInfo(d, null, d.tp) : null;
+  const tpPending = !tpSync && d.tpAddr && d.coin && d.entry > 0 && d.lev && !d.closed;
+  const tpCell = tpSync || (tpPending ? `<span id="tmTp" style="color:var(--muted)">lade…</span>` : null);
   const F = [
     ["Source", d.src],
     ["Type", d.kind],
@@ -633,6 +664,7 @@ function openTradeModal(d) {
     ["Mark price", d.mark ? fmtPrice(d.mark) : null],
     ["Exit price", d.exit ? fmtPrice(d.exit) : null],
     ["Liq. price", d.liq ? fmtPrice(d.liq) : null],
+    ["Take-Profit", tpCell],
     ["Size", d.size != null ? (Math.round(d.size * 1e6) / 1e6) : null],
     ["Position value", d.value != null ? fmtUsdC(d.value) : null],
     ["Margin", d.margin != null ? fmtUsdC(d.margin) : null],
@@ -658,18 +690,23 @@ function openTradeModal(d) {
     const el = document.getElementById("tmPeak"); if (!el) return;
     el.outerHTML = peak == null ? "n/a" : pctSpan(peak * 100);
   });
+  if (tpPending) fetchTp(d.tpAddr, d.coin).then((px) => {
+    if (myReq !== _peakReq) return;
+    const el = document.getElementById("tmTp"); if (!el) return;
+    el.outerHTML = px > 0 ? tpInfo(d, px, null) : "kein TP gesetzt";
+  });
 }
 function closeTrade() { const m = document.getElementById("tradeModal"); m.style.display = "none"; m.setAttribute("aria-hidden", "true"); }
 function openClosed(srcKey, i) { const arr = srcKey === "my" ? myClosedShown : botClosedShown; const d = arr && arr[i]; if (d) openTradeModal(d); }
 function openPos(i) {
   const p = POS[i]; if (!p) return;
   const mark = markFor(p), value = Math.abs(p.szi) * mark, upnl = p.szi * (mark - p.entry), roe = p.margin > 0 ? upnl / p.margin : 0;
-  const wlabel = (lastStructData && lastStructData[p.wi]) ? lastStructData[p.wi].label : null;
+  const w = (lastStructData && lastStructData[p.wi]) || null;
   openTradeModal({
-    src: "Open position" + (wlabel ? " · " + wlabel : ""),
+    src: "Open position" + (w ? " · " + w.label : ""),
     coin: p.coin, kind: p.kind, side: p.side, lev: p.levNum || null, mode: p.mode,
     entry: p.entry, mark, liq: p.liq, size: Math.abs(p.szi), value, margin: p.margin,
-    pnl: upnl, roe, opened: p.opened,
+    pnl: upnl, roe, opened: p.opened, tpAddr: w ? w.addr : null,
   });
 }
 function openMyPos(i) {
@@ -679,15 +716,17 @@ function openMyPos(i) {
     src: "My open position",
     coin: p.coin, kind: p.kind, side: p.side, lev: p.levNum || null, mode: p.mode,
     entry: p.entry, mark, liq: p.liq, size: Math.abs(p.szi), value, margin: p.margin,
-    pnl: upnl, roe, opened: p.opened,
+    pnl: upnl, roe, opened: p.opened, tpAddr: MY_ADDR,
   });
 }
 function openBotPos(i) {
   const p = botPosShown[i]; if (!p) return;
+  // paper liquidation = full margin lost = -1/lev price move (no maintenance margin)
+  const liq = (p.entry > 0 && p.lev) ? (p.side === "LONG" ? p.entry * (1 - 1 / p.lev) : p.entry * (1 + 1 / p.lev)) : null;
   openTradeModal({
     src: "Copy-Bot position (paper)",
     coin: p.bare || p.coin, kind: p.kind, side: p.side, lev: p.lev, mode: p.mode,
-    entry: p.entry, mark: p.mark, size: Math.abs(p.sz), value: Math.abs(p.sz) * (p.mark || 0),
+    entry: p.entry, mark: p.mark, liq, tp: p.tp, size: Math.abs(p.sz), value: Math.abs(p.sz) * (p.mark || 0),
     margin: p.margin, pnl: p.upnl, roe: p.roe, peak: p.peak_roe, opened: p.opened,
   });
 }

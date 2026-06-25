@@ -686,7 +686,7 @@ def build_positions(whale, mids):
                     "side": p["side"], "sz": p["sz"], "entry": p["entry"], "mark": mk,
                     "lev": p["lev"], "mode": p["mode"], "margin": p["margin"],
                     "upnl": round(upnl, 2), "roe": round(roe, 4),
-                    "peak_roe": round(peak, 4),
+                    "peak_roe": round(peak, 4), "tp": p.get("tp"),
                     "value": abs(p["sz"]) * mk,
                     "opened": p.get("opened_ms", 0)})
     out.sort(key=lambda x: x["value"], reverse=True)
