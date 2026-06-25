@@ -395,6 +395,14 @@
   @keyframes zzz { 0% { opacity: 0; transform: translateY(8px) rotate(-6deg); } 35% { opacity: .95; } 100% { opacity: 0; transform: translateY(-12px) rotate(8deg); } }
   .whaletext { color: var(--muted); font-size: 13px; letter-spacing: .2px; }
   @media (prefers-reduced-motion: reduce) { .whalewrap, .wbub, .zzz { animation: none; } .zzz { opacity: .6; } }
+  /* data-kraken fetch animation */
+  .octobox { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 14px 10px 20px; }
+  #octoCanvas { width: 100%; max-width: 440px; height: 240px; display: block; }
+  .octotitle { font-family: "Chakra Petch", var(--ui); font-weight: 700; font-size: 16px; letter-spacing: .5px;
+    background: var(--grad); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .octobar { width: 100%; max-width: 440px; height: 6px; border-radius: 999px; background: rgba(255,255,255,.07); overflow: hidden; }
+  .octobar > i { display: block; height: 100%; background: var(--grad); width: 8%; transition: width .4s ease; }
+  .octoprog { font-family: var(--mono); font-size: 12px; color: var(--muted); }
   /* boredom screensaver */
   #chillBtn { position: fixed; right: 18px; bottom: 18px; z-index: 300; width: 46px; height: 46px; border-radius: 50%;
     border: 1px solid rgba(168,85,247,.5); background: radial-gradient(circle at 30% 30%, #a855f7, #6366f1); color: #fff;
@@ -1379,10 +1387,66 @@ function renderBot(s) {
   renderSmart(s.smart || {});
 }
 function smShort(a) { return a ? a.slice(0, 6) + "…" + a.slice(-4) : ""; }
+/* ---------- data-kraken fetch animation ---------- */
+const OCTO = { raf: 0, last: 0, t: 0, c: null, x: null, W: 0, H: 0, tok: [], spawn: 0 };
+function octoResize() { const c = OCTO.c; if (!c) return; const dpr = Math.min(window.devicePixelRatio || 1, 2); OCTO.W = c.clientWidth || 440; OCTO.H = 240; c.width = OCTO.W * dpr; c.height = OCTO.H * dpr; OCTO.x.setTransform(dpr, 0, 0, dpr, 0, 0); }
+function octoStart() { const c = document.getElementById("octoCanvas"); if (!c) return; OCTO.c = c; OCTO.x = c.getContext("2d"); octoResize(); OCTO.last = 0; OCTO.t = 0; OCTO.tok = []; if (!OCTO.raf) OCTO.raf = requestAnimationFrame(octoLoop); }
+function octoStop() { if (OCTO.raf) cancelAnimationFrame(OCTO.raf); OCTO.raf = 0; }
+function octoLoop(ts) {
+  if (!OCTO.raf) return;
+  const dt = OCTO.last ? Math.min((ts - OCTO.last) / 1000, 0.05) : 0.016; OCTO.last = ts; OCTO.t += dt;
+  const x = OCTO.x, W = OCTO.W, H = OCTO.H, cx = W / 2, cy = H / 2; if (!x) return;
+  x.fillStyle = "rgba(13,9,20,.30)"; x.fillRect(0, 0, W, H);
+  const R = Math.min(W, H) * 0.46;
+  for (let i = 0; i < 8; i++) {                       // tentacles reaching out
+    const ang = i * Math.PI / 4 + Math.sin(OCTO.t * 1.1 + i) * 0.22;
+    const len = R * (0.62 + 0.38 * Math.sin(OCTO.t * 1.6 + i * 0.8));
+    x.beginPath();
+    for (let k = 0; k <= 16; k++) { const f = k / 16, wob = Math.sin(OCTO.t * 3 + i + f * 6) * 14 * f;
+      const px = cx + Math.cos(ang) * len * f + Math.cos(ang + Math.PI / 2) * wob;
+      const py = cy + Math.sin(ang) * len * f + Math.sin(ang + Math.PI / 2) * wob;
+      k ? x.lineTo(px, py) : x.moveTo(px, py); }
+    x.strokeStyle = `hsla(${270 + i * 8},80%,66%,.7)`; x.lineWidth = 3; x.lineCap = "round"; x.stroke();
+    const tx = cx + Math.cos(ang) * len, ty = cy + Math.sin(ang) * len;
+    x.fillStyle = `hsla(${270 + i * 8},85%,72%,.95)`; x.shadowColor = x.fillStyle; x.shadowBlur = 10; x.beginPath(); x.arc(tx, ty, 3.5, 0, 7); x.fill(); x.shadowBlur = 0;
+  }
+  OCTO.spawn -= dt;                                   // data tokens pulled toward the body
+  if (OCTO.spawn <= 0) { OCTO.spawn = 0.22; const a = Math.random() * 7, d = R * _rnd(0.85, 1.2);
+    OCTO.tok.push({ x: cx + Math.cos(a) * d, y: cy + Math.sin(a) * d, sym: "₿Ξ$◆◇01"[Math.floor(Math.random() * 7)], life: 1 }); }
+  x.font = "14px JetBrains Mono, monospace";
+  for (const t of OCTO.tok) { t.x += (cx - t.x) * 1.7 * dt; t.y += (cy - t.y) * 1.7 * dt; t.life -= dt * 0.5;
+    if (Math.hypot(t.x - cx, t.y - cy) < 26) t.life = Math.min(t.life, 0.15);
+    x.fillStyle = `hsla(300,90%,72%,${Math.max(0, t.life)})`; x.fillText(t.sym, t.x, t.y); }
+  OCTO.tok = OCTO.tok.filter((t) => t.life > 0);
+  const g = x.createRadialGradient(cx, cy, 0, cx, cy, 30); g.addColorStop(0, "#c084fc"); g.addColorStop(1, "#6d28d9");
+  x.fillStyle = g; x.shadowColor = "rgba(168,85,247,.85)"; x.shadowBlur = 26; x.beginPath(); x.arc(cx, cy, 26, 0, 7); x.fill(); x.shadowBlur = 0;
+  x.fillStyle = "#0a0a0f"; x.beginPath(); x.arc(cx - 8, cy - 3, 4, 0, 7); x.arc(cx + 8, cy - 3, 4, 0, 7); x.fill();
+  x.fillStyle = "#fff"; x.beginPath(); x.arc(cx - 7, cy - 4, 1.5, 0, 7); x.arc(cx + 9, cy - 4, 1.5, 0, 7); x.fill();
+  OCTO.raf = requestAnimationFrame(octoLoop);
+}
+window.addEventListener("resize", () => { if (OCTO.raf) octoResize(); });
+let SMART_VIEWMODE = "";
 function renderSmart(sm) {
   const port = document.getElementById("smartPort");
+  // building / fetching -> show the data-kraken
+  if (sm && sm.building) {
+    if (SMART_VIEWMODE !== "build") {
+      SMART_VIEWMODE = "build";
+      if (port) port.innerHTML = `<header class="phead"><span class="wlabel">Smart Money · Paper</span><span class="meta">fetching…</span></header>
+        <div class="pbody"><div class="octobox"><canvas id="octoCanvas"></canvas><div class="octotitle">🐙 Daten-Kraken sammelt…</div>
+        <div class="octobar"><i id="octoBar"></i></div><div class="octoprog" id="octoProg">Leaderboard wird geladen…</div></div></div>`;
+      octoStart();
+    }
+    const tot = sm.build_total || 0, done = sm.build_done || 0;
+    const bar = document.getElementById("octoBar"); if (bar) bar.style.width = (tot ? Math.max(8, Math.round(100 * done / tot)) : 8) + "%";
+    const pr = document.getElementById("octoProg"); if (pr) pr.textContent = tot ? `Win-Rate-Analyse… ${done}/${tot} Trader` : "Leaderboard wird geladen…";
+    renderSmartAux(sm);
+    return;
+  }
+  if (SMART_VIEWMODE === "build") { SMART_VIEWMODE = "normal"; octoStop(); }
   if (!sm || !sm.equity) {
-    if (port) port.innerHTML = `<header class="phead"><span class="wlabel">Smart Money · Paper</span></header><div class="state small">Engine startet… Top-100 wird gebaut (Win-Rate-Analyse, ~1 Min). Erscheint nach dem nächsten Server-Poll.</div>`;
+    if (port) port.innerHTML = `<header class="phead"><span class="wlabel">Smart Money · Paper</span></header><div class="state small">Engine startet… erscheint nach dem nächsten Server-Poll.</div>`;
+    renderSmartAux(sm || {});
     return;
   }
   const pos = sm.equity >= sm.start, all = sm.pnl_all || 0;
@@ -1397,8 +1461,12 @@ function renderSmart(sm) {
         <div class="statrow"><span>Strategie</span><span class="num">Top-100 · neue Opens kopieren</span></div>
         <div class="statrow"><span>Leverage / Size</span><span class="num">${sm.lev}× · ${sm.frac_pct}% equity</span></div>
         <div class="statrow"><span>Take-Profit</span><span class="num">+${sm.tp_pct}% ROE</span></div>
+        <div class="statrow"><span>Exit</span><span class="num">nur TP / Liquidation</span></div>
       </div>
     </div>`;
+  renderSmartAux(sm);
+}
+function renderSmartAux(sm) {
   const sig = document.getElementById("smartSignals");
   if (sig) {
     const rows = (sm.signals || []).map((e) => `<div class="logrow"><span class="logt">${esc(e.t)}</span>${esc(e.text)}</div>`).join("") || `<div class="state small">Noch keine Signale.</div>`;

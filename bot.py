@@ -783,11 +783,21 @@ def smart_winrate(addr):
     n = w + l
     return (round(100.0 * w / n, 1) if n else 0.0), n
 
+SMART_BUILD = {"on": False, "done": 0, "total": 0}
+def smart_set_build(on, done=0, total=0):
+    SMART_BUILD["on"] = on; SMART_BUILD["done"] = done; SMART_BUILD["total"] = total
+    with LOCK:
+        base = dict(STATE.get("smart", {}))
+        base["building"] = on; base["build_done"] = done; base["build_total"] = total
+        base.setdefault("signals", SMART_SIG[:40]); base.setdefault("tracked", len(SMART_TOP))
+        STATE["smart"] = base
+
 def smart_build_top():
+    smart_set_build(True, 0, SMART_POOL)
     try:
         rows = fetch_leaderboard()
     except Exception as e:
-        print("smart leaderboard error:", e); return
+        print("smart leaderboard error:", e); smart_set_build(False); return
     ranked = []
     for r in rows:
         addr = r.get("ethAddress") or ""
@@ -800,17 +810,22 @@ def smart_build_top():
             continue
         ranked.append((addr, r.get("displayName") or "", roi))
     ranked.sort(key=lambda x: -x[2])
-    smart_log("Leaderboard: %d Kandidaten, bewerte Win-Rate…" % min(len(ranked), SMART_POOL), "info")
+    total = min(len(ranked), SMART_POOL)
+    smart_set_build(True, 0, total)
+    smart_log("Leaderboard: %d Kandidaten, bewerte Win-Rate…" % total, "info")
     out = []
-    for addr, name, roi in ranked[:SMART_POOL]:
+    for i, (addr, name, roi) in enumerate(ranked[:SMART_POOL]):
         wr, n = smart_winrate(addr)
         if wr >= SMART_MINWR and n >= SMART_MINTR:
             out.append({"addr": addr, "name": name, "roi": round(roi * 100, 1),
                         "wr": wr, "score": round(roi * (wr / 100.0), 4)})
+        if i % 8 == 0:
+            smart_set_build(True, i + 1, total)
         time.sleep(0.12)
     out.sort(key=lambda x: -x["score"])
     global SMART_TOP
     SMART_TOP = out[:SMART_TOPN]
+    smart_set_build(False, total, total)
     smart_log("✅ Top-%d aktualisiert (%d Trader, ROI+WR gefiltert)" % (SMART_TOPN, len(SMART_TOP)), "info")
 
 def smart_fetch_main(addr):
@@ -893,7 +908,8 @@ def smart_publish(mids):
         "stats": {"count": n, "win_rate": round(100.0 * wins / n, 1) if n else 0.0, "realized": round(tot, 2)},
         "top": SMART_TOP[:100], "signals": SMART_SIG[:40], "tracked": len(SMART_TOP),
         "lev": SMART_LEV, "tp_pct": round(SMART_TP * 100), "frac_pct": round(SMART_FRAC * 100),
-        "history": SMART["hist"][-1500:], "pnl_all": round(eq - SMART_START, 2)}
+        "history": SMART["hist"][-1500:], "pnl_all": round(eq - SMART_START, 2),
+        "building": SMART_BUILD["on"], "build_done": SMART_BUILD["done"], "build_total": SMART_BUILD["total"]}
 
 def smart_save():
     try:
@@ -949,20 +965,8 @@ def run_smart():
             cur = smart_fetch_main(tr["addr"])
             if cur is not None:
                 coins_now = set(cur.keys()); prev = _smart_last.get(tr["addr"]); _smart_last[tr["addr"]] = coins_now
-                # exits: our positions sourced from this trader that he has now closed
-                with LOCK:
-                    for coin in list(SMART["pos"].keys()):
-                        p = SMART["pos"][coin]
-                        if p.get("src") != tr["addr"]:
-                            continue
-                        if coin in coins_now:
-                            _smart_miss[coin] = 0
-                        else:
-                            _smart_miss[coin] = _smart_miss.get(coin, 0) + 1
-                            if _smart_miss[coin] >= 2:
-                                pnl = smart_pnl(p, mids); SMART["cash"] += pnl; SMART["pos"].pop(coin); _smart_miss.pop(coin, None)
-                                smart_record(p, pnl, "trader exit", mids)
-                                smart_log("🔻 %s zu (Trader-Exit) %+.2f" % (coin, pnl), "exit"); tg("🧠 SMART 🔻 CLOSED %s (trader exit) %+.2f" % (coin, pnl))
+                # NOTE: we do NOT close when the source trader closes — our copies are
+                # managed only by our own TP / liquidation (per user's rule).
                 # genuine NEW opens (only after we have a baseline snapshot for this trader)
                 if prev is not None:
                     for coin in coins_now - prev:
