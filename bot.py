@@ -961,17 +961,24 @@ def run_smart():
                 mids = hl_post(SOURCE_URL, {"type": "allMids"})
             except Exception:
                 mids = {}
-            # TP / liquidation on our own positions every tick
+            # TP / liquidation on our own positions every tick.
+            # IMPORTANT: never call tg() inside `with LOCK` — tg() itself takes LOCK
+            # and threading.Lock isn't reentrant -> deadlock. Collect msgs, send after.
+            sm_events = []
             with LOCK:
                 for coin in list(SMART["pos"].keys()):
                     p = SMART["pos"][coin]; pnl = smart_pnl(p, mids); roe = pnl / p["margin"] if p["margin"] else 0
                     p["peak_roe"] = max(p.get("peak_roe", roe), roe)
                     if pnl <= -p["margin"]:
                         SMART["cash"] -= p["margin"]; SMART["pos"].pop(coin); smart_record(p, -p["margin"], "liquidated", mids)
-                        smart_log("💥 LIQ %s — -$%.2f" % (coin, p["margin"]), "liq"); tg("🧠 SMART 💥 LIQUIDATED %s — -$%.2f" % (coin, p["margin"]))
+                        smart_log("💥 LIQ %s — -$%.2f" % (coin, p["margin"]), "liq")
+                        sm_events.append("🧠 SMART 💥 LIQUIDATED %s — -$%.2f" % (coin, p["margin"]))
                     elif roe >= p["tp"]:
                         SMART["cash"] += pnl; SMART["pos"].pop(coin); smart_record(p, pnl, "take-profit", mids)
-                        smart_log("🎯 TP %s +$%.2f" % (coin, pnl), "tp"); tg("🧠 SMART 🎯 TP %s +$%.2f" % (coin, pnl))
+                        smart_log("🎯 TP %s +$%.2f" % (coin, pnl), "tp")
+                        sm_events.append("🧠 SMART 🎯 TP %s +$%.2f" % (coin, pnl))
+            for e in sm_events:
+                tg(e)
             # poll ONE trader per tick (staggered over the whole list)
             tr = SMART_TOP[idx % len(SMART_TOP)]; idx += 1
             cur = smart_fetch_main(tr["addr"])
