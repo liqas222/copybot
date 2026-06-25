@@ -378,6 +378,23 @@
   @keyframes flash { from { background: rgba(168,85,247,.22); } to { background: transparent; } }
   .flash { animation: flash .6s ease-out; border-radius: 4px; }
   @media (prefers-reduced-motion: reduce) { .flash { animation: none; } }
+  /* sleeping whale — empty-state illustration for wallets with no open position */
+  .whaleidle { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 26px 16px 30px; }
+  .whalewrap { position: relative; width: 220px; height: 130px; animation: whaleFloat 4.6s ease-in-out infinite; }
+  .whalesvg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 16px 26px rgba(168,85,247,.4)); }
+  @keyframes whaleFloat { 0%,100% { transform: translateY(0) rotate(-1.6deg); } 50% { transform: translateY(-10px) rotate(1.6deg); } }
+  .wbub { position: absolute; border-radius: 50%; background: rgba(168,85,247,.55); box-shadow: 0 0 7px rgba(168,85,247,.6); opacity: 0; pointer-events: none; }
+  .wbub.b1 { left: 70px; top: 36px; width: 7px; height: 7px; animation: wbub 3.4s ease-in infinite; }
+  .wbub.b2 { left: 78px; top: 36px; width: 5px; height: 5px; animation: wbub 3.4s ease-in infinite .9s; }
+  .wbub.b3 { left: 66px; top: 36px; width: 9px; height: 9px; animation: wbub 3.4s ease-in infinite 1.9s; }
+  @keyframes wbub { 0% { transform: translateY(0) scale(.5); opacity: 0; } 22% { opacity: .85; } 100% { transform: translateY(-44px) scale(1.2); opacity: 0; } }
+  .zzz { position: absolute; color: var(--purple); font-family: "Chakra Petch", var(--ui); font-weight: 700; opacity: 0; pointer-events: none; text-shadow: 0 0 10px rgba(168,85,247,.5); }
+  .zzz.z1 { left: 96px; top: 30px; font-size: 14px; animation: zzz 3s ease-in-out infinite; }
+  .zzz.z2 { left: 108px; top: 18px; font-size: 18px; animation: zzz 3s ease-in-out infinite 1s; }
+  .zzz.z3 { left: 122px; top: 4px; font-size: 23px; animation: zzz 3s ease-in-out infinite 2s; }
+  @keyframes zzz { 0% { opacity: 0; transform: translateY(8px) rotate(-6deg); } 35% { opacity: .95; } 100% { opacity: 0; transform: translateY(-12px) rotate(8deg); } }
+  .whaletext { color: var(--muted); font-size: 13px; letter-spacing: .2px; }
+  @media (prefers-reduced-motion: reduce) { .whalewrap, .wbub, .zzz { animation: none; } .zzz { opacity: .6; } }
 </style>
 </head>
 <body>
@@ -1053,6 +1070,29 @@ function wireColDrag(root) {
 
 /* ---------- render: tracked wallets ---------- */
 let lastStructData = [];
+function whaleIdleHtml() {
+  return `<div class="whaleidle">
+    <div class="whalewrap">
+      <span class="zzz z1">z</span><span class="zzz z2">z</span><span class="zzz z3">Z</span>
+      <span class="wbub b1"></span><span class="wbub b2"></span><span class="wbub b3"></span>
+      <svg class="whalesvg" viewBox="0 0 220 130" aria-hidden="true">
+        <defs>
+          <linearGradient id="whaleG" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#6366F1"/><stop offset=".55" stop-color="#A855F7"/><stop offset="1" stop-color="#EC4899"/>
+          </linearGradient>
+        </defs>
+        <ellipse cx="108" cy="116" rx="74" ry="9" fill="rgba(168,85,247,.16)"/>
+        <path d="M28 70 C28 44 60 36 100 39 C140 42 150 54 166 60 L202 44 C189 62 189 80 202 98 L166 80 C150 90 140 100 100 101 C60 103 28 96 28 70 Z" fill="url(#whaleG)"/>
+        <path d="M46 84 C82 104 134 90 156 80 C128 96 86 100 64 94 C55 92 49 89 46 84 Z" fill="rgba(255,255,255,.16)"/>
+        <path d="M92 96 C100 116 118 104 128 92 C114 96 102 96 92 96 Z" fill="#7c3aed"/>
+        <path d="M50 64 q8 7 16 0" stroke="#0a0a0f" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+        <path d="M40 76 q9 6 18 1" stroke="rgba(10,10,15,.45)" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <ellipse cx="74" cy="41" rx="5" ry="3" fill="rgba(10,10,15,.35)"/>
+      </svg>
+    </div>
+    <div class="whaletext">😴 Whale schläft · keine offene Position</div>
+  </div>`;
+}
 function renderStructure(data) {
   if (data) lastStructData = data; else data = lastStructData;
   COL_RERENDER[POS_STORE] = () => renderStructure();
@@ -1063,7 +1103,7 @@ function renderStructure(data) {
     const addrShort = w.addr.slice(0, 6) + "…" + w.addr.slice(-4);
     let body = "";
     if (w.error) body = `<div class="state">Couldn't reach Hyperliquid — retrying…</div>`;
-    else if (!w.positions.length) body = `<div class="state">No open positions.</div>`;
+    else if (!w.positions.length) body = whaleIdleHtml();
     else {
       const rows = w.positions.map((p) => {
         const i = POS.length; p.wi = wi; p._i = i; POS.push(p);
