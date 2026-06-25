@@ -309,6 +309,7 @@
           <div class="pbody">
             <input id="btAddr" class="tgin" type="text" placeholder="0x… Wallet (leer = kopierte Wallet)" autocomplete="off" spellcheck="false" style="width:100%;margin-bottom:10px">
             <div class="setrow"><label>Take-Profit</label><span class="ingrp"><input id="btTp" class="numin" type="number" min="1" max="1000" step="1" value="12"><span class="unit">% ROE</span></span></div>
+            <div class="setrow"><label>Hebel</label><span class="ingrp"><input id="btLev" class="numin" type="number" min="1" max="100" step="1" value="6"><span class="unit">×</span></span></div>
             <div class="setrow"><label>Start balance</label><span class="ingrp"><input id="btStart" class="numin" type="number" min="1" step="100" value="1000"><span class="unit">$</span></span></div>
             <button class="btn" onclick="runBacktest()">▶ Run backtest</button>
             <div id="btResult"><div class="setnote">Simuliert die letzten 30 Tage des kopierten Whales mit deiner Strategie: 6× Hebel, 20% Margin/Trade, max 5 Positionen.</div></div>
@@ -822,34 +823,43 @@ async function btCandles(coin, rawCoin, from, to, ivName) {
   }
   return [];
 }
-function btBuildCycles(fills, from, now) {        // pair fills into position cycles (open -> close)
+function btBuildCycles(fills, from, now) {        // pair fills into position cycles (new open -> close only)
   const grp = {};
   for (const f of fills || []) { const c = f.coin || "", bare = c.includes(":") ? c.split(":")[1] : c; (grp[bare] = grp[bare] || []).push(f); }
   const cycles = [];
   for (const coin in grp) {
     const arr = grp[coin].sort((a, b) => a.time - b.time);
-    let openT = null, openPx = 0, side = null, rawCoin = null, lastPx = 0;
+    let runPos = 0, openT = null, openPx = 0, side = null, rawCoin = null;
     for (const f of arr) {
-      const start = parseFloat(f.startPosition || 0), sz = parseFloat(f.sz || 0);
-      const after = start + (f.side === "B" ? sz : -sz);
-      lastPx = parseFloat(f.px || 0);
-      if (Math.abs(start) < 1e-9 && Math.abs(after) > 1e-9) { openT = f.time; openPx = lastPx; side = after > 0 ? "LONG" : "SHORT"; rawCoin = f.coin || coin; }
-      if (Math.abs(after) < 1e-9 && openT != null) { cycles.push({ coin, rawCoin, side, entry: openPx, openT, closeT: f.time, exitPx: lastPx }); openT = null; }
+      const sz = parseFloat(f.sz || 0), px = parseFloat(f.px || 0);
+      const delta = f.side === "B" ? sz : -sz;
+      const prev = runPos;
+      runPos += delta;
+      // NEW open only: position was flat, now non-flat (not a scale-in / Nachkauf)
+      if (Math.abs(prev) < 1e-9 && Math.abs(runPos) > 1e-9) {
+        openT = f.time; openPx = px; side = runPos > 0 ? "LONG" : "SHORT"; rawCoin = f.coin || coin;
+      }
+      // Full close: position back to flat
+      if (Math.abs(prev) > 1e-9 && Math.abs(runPos) < 1e-9 && openT != null) {
+        cycles.push({ coin, rawCoin, side, entry: openPx, openT, closeT: f.time, exitPx: px });
+        openT = null;
+      }
     }
-    if (openT != null) {                          // still open at window end -> hold to current mark
-      const mk = (mkt[coin] && mkt[coin].price) || lastPx;
+    if (openT != null) {                          // whale still in position at window end
+      const mk = (mkt[coin] && mkt[coin].price) || openPx;
       cycles.push({ coin, rawCoin, side, entry: openPx, openT, closeT: now, exitPx: mk, stillOpen: true });
     }
   }
   return cycles.filter((cy) => cy.openT >= from && cy.entry > 0);
 }
-function btCycleExit(cy, candles, tp, lev, now) { // OUR exit: TP hit, liq hit, or still open
+function btCycleExit(cy, candles, tp, lev, now) { // OUR exit: TP, liq, or follow whale's close
   const tpPx  = cy.side === "LONG" ? cy.entry * (1 + tp / lev)  : cy.entry * (1 - tp / lev);
   const liqPx = cy.side === "LONG" ? cy.entry * (1 - 1 / lev)   : cy.entry * (1 + 1 / lev);
-  // scan ALL candles from our entry onwards — do NOT cap at whale's closeT
+  // closed by whale → only scan up to his close; still open → scan to now
+  const scanEnd = cy.stillOpen ? (now || Date.now()) : cy.closeT;
   for (const k of candles) {
     const t = +k.t;
-    if (t < cy.openT) continue;                  // before our open → skip
+    if (t < cy.openT || t > scanEnd) continue;
     const hi = parseFloat(k.h), lo = parseFloat(k.l);
     if (cy.side === "LONG") {
       if (lo <= liqPx) return { t, px: liqPx, reason: "liq" };
@@ -859,9 +869,13 @@ function btCycleExit(cy, candles, tp, lev, now) { // OUR exit: TP hit, liq hit, 
       if (lo <= tpPx)  return { t, px: tpPx,  reason: "tp"  };
     }
   }
-  // neither hit → trade still open, use current mark
-  const mk = (mkt[cy.coin] && mkt[cy.coin].price) || cy.exitPx;
-  return { t: now || Date.now(), px: mk, reason: "open" };
+  // no TP/liq hit within the window
+  if (cy.stillOpen) {
+    const mk = (mkt[cy.coin] && mkt[cy.coin].price) || cy.exitPx;
+    return { t: now || Date.now(), px: mk, reason: "open" };
+  }
+  // whale closed without triggering our targets → follow his exit
+  return { t: cy.closeT, px: cy.exitPx, reason: "whale" };
 }
 async function btFetchFills(addr, from, now) {   // paginate userFillsByTime to get the FULL window (>2000 fills)
   let all = [], cursor = from, guard = 0;
@@ -886,8 +900,8 @@ async function btFetchFills(addr, from, now) {   // paginate userFillsByTime to 
   for (const f of all) { const k = f.time + "|" + (f.hash || f.oid || f.tid || ""); if (seen.has(k)) continue; seen.add(k); out.push(f); }
   return out.filter((f) => f.time >= from && f.time <= now);
 }
-async function backtest(addr, tp, start) {
-  const lev = (lastBotStatus && lastBotStatus.fixed_lev) || 6, FRAC = 0.20, MAXPOS = 5;
+async function backtest(addr, tp, lev, start) {
+  const FRAC = 0.20, MAXPOS = 5;
   const now = Date.now(), from = now - 30 * 86400000;
   const fills = await btFetchFills(addr, from, now);
   let cycles = btBuildCycles(fills, from, now).sort((a, b) => a.openT - b.openT);
@@ -900,28 +914,38 @@ async function backtest(addr, tp, start) {
   }));
   for (const cy of cycles) cy.exit = btCycleExit(cy, byCoin[cy.coin] || [], tp, lev, now);
   // event-driven equity simulation (compounding + 5-slot cap)
-  let equity = start, peakEq = start, maxDD = 0, wins = 0, losses = 0, count = 0, tpHits = 0, liqs = 0, whaleExits = 0;
+  let equity = start, peakEq = start, maxDD = 0, wins = 0, losses = 0, count = 0, tpHits = 0, liqs = 0, whaleExits = 0, stillOpen = 0;
   let open = [];
+  // track which whale cycle ID is currently "active" per coin — no re-entry until whale opens a brand new one
+  const activeCycle = {};
   const settle = (untilT) => {
     open.sort((a, b) => a.exitT - b.exitT);
     while (open.length && open[0].exitT <= untilT) {
       const tr = open.shift(); equity += tr.pnl;
+      if (tr.onSettle) tr.onSettle();
       if (tr.pnl > 0) wins++; else losses++;
       peakEq = Math.max(peakEq, equity); maxDD = Math.max(maxDD, peakEq > 0 ? (peakEq - equity) / peakEq : 0);
     }
   };
-  for (const cy of cycles) {
+  for (let i = 0; i < cycles.length; i++) {
+    const cy = cycles[i];
     settle(cy.openT);
+    // skip if we already entered this whale cycle (TP hit earlier, but whale didn't open a new one)
+    if (activeCycle[cy.coin] === i) continue;
     if (open.length >= MAXPOS) continue;
     const margin = equity * FRAC; if (margin <= 0) continue;
+    activeCycle[cy.coin] = i;                    // lock this coin to this cycle
     const size = margin * lev / cy.entry, sign = cy.side === "LONG" ? 1 : -1;
     let pnl = cy.exit.reason === "liq" ? -margin : sign * size * (cy.exit.px - cy.entry);
     if (pnl < -margin) pnl = -margin;
-    if (cy.exit.reason === "tp") tpHits++; else if (cy.exit.reason === "liq") liqs++; else whaleExits++; // "open" = no TP/liq hit yet
-    open.push({ exitT: cy.exit.t, pnl }); count++;
+    if (cy.exit.reason === "tp") tpHits++; else if (cy.exit.reason === "liq") liqs++; else if (cy.exit.reason === "open") stillOpen++; else whaleExits++;
+    // when our trade exits, release the coin lock (whale may re-open it later as a new cycle)
+    open.push({ exitT: cy.exit.t, pnl, coin: cy.coin, cycleIdx: i,
+      onSettle: () => { if (activeCycle[cy.coin] === i) delete activeCycle[cy.coin]; } });
+    count++;
   }
   settle(Infinity);
-  return { equity, pnl: equity - start, pct: start > 0 ? (equity - start) / start * 100 : 0, count, wins, losses, maxDD, tpHits, liqs, whaleExits, fillsN, cyclesN, lev };
+  return { equity, pnl: equity - start, pct: start > 0 ? (equity - start) / start * 100 : 0, count, wins, losses, maxDD, tpHits, liqs, whaleExits, stillOpen, fillsN, cyclesN, lev };
 }
 function renderBacktest(r, addr) {
   const out = document.getElementById("btResult"); if (!out) return;
@@ -934,7 +958,7 @@ function renderBacktest(r, addr) {
     <div class="statrow"><span>Trades</span><span class="num">${r.count}</span></div>
     <div class="statrow"><span>Win rate</span><span class="num">${r.count ? Math.round(100 * r.wins / r.count) : 0}% · ${r.wins}W / ${r.losses}L</span></div>
     <div class="statrow"><span>Max drawdown</span><span class="num neg">-${(r.maxDD * 100).toFixed(1)}%</span></div>
-    <div class="statrow" title="TP-Treffer · Liquidationen · kein TP/Liq getroffen (noch offen)"><span>TP · Liq · Noch offen</span><span class="num">${r.tpHits} · ${r.liqs} · ${r.whaleExits}</span></div>
+    <div class="statrow" title="TP-Treffer · Liquidationen · Whale-Exit (kein TP/Liq) · Noch offen (Whale hält noch)"><span>TP · Liq · Whale-Exit · Offen</span><span class="num">${r.tpHits} · ${r.liqs} · ${r.whaleExits} · ${r.stillOpen}</span></div>
     <div class="statrow" title="rohe Fills aus der API · daraus erkannte Trades (30d)"><span>Fills · erkannte Trades</span><span class="num">${r.fillsN} · ${r.cyclesN}</span></div>
     <div class="setnote">Annahmen: Entry = Whale-Entry, ${r.lev}× Hebel, 20% Margin/Trade, max 5 gleichzeitig. Exit = eigener TP/Liq (unabhängig vom Whale-Exit). Gebühren, Funding & Kill-Switch nicht modelliert → Näherung.</div>`;
 }
@@ -942,14 +966,15 @@ async function runBacktest() {
   if (backtestRunning) return;
   const out = document.getElementById("btResult");
   const tp = parseFloat((document.getElementById("btTp") || {}).value) / 100;
+  const lev = parseFloat((document.getElementById("btLev") || {}).value) || 6;
   const start = parseFloat((document.getElementById("btStart") || {}).value);
-  if (!(tp > 0) || !(start > 0)) { if (out) out.innerHTML = `<div class="setnote err">Bitte gültige Werte für TP und Startguthaben eingeben.</div>`; return; }
+  if (!(tp > 0) || !(start > 0) || !(lev > 0)) { if (out) out.innerHTML = `<div class="setnote err">Bitte gültige Werte eingeben.</div>`; return; }
   let addr = (((document.getElementById("btAddr") || {}).value) || "").trim();
   if (!addr) { const cw = (WALLETS || []).find((w) => w.copied); addr = cw ? cw.addr : ""; }
   if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) { if (out) out.innerHTML = `<div class="setnote err">Bitte eine gültige Wallet-Adresse (0x…) eingeben.</div>`; return; }
   backtestRunning = true;
   if (out) out.innerHTML = `<div class="state small">Backtest läuft für ${addr.slice(0, 6)}…${addr.slice(-4)} — Trades &amp; Candles werden geladen.</div>`;
-  try { renderBacktest(await backtest(addr, tp, start), addr); }
+  try { renderBacktest(await backtest(addr, tp, lev, start), addr); }
   catch (e) { console.error("backtest error", e); if (out) out.innerHTML = `<div class="setnote err">Backtest fehlgeschlagen: ${e && e.message ? e.message : e}. Nochmal versuchen.</div>`; }
   backtestRunning = false;
 }
