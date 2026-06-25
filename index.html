@@ -982,11 +982,28 @@ async function btLoadData(addr, onProgress) {     // fetch fills + FINE per-trad
     if (onProgress) onProgress(i + 1, cycles.length);
     await new Promise((r) => setTimeout(r, 80));   // pace to avoid rate-limit
   }
-  return { cycles, now, fillsN, cyclesN, noData };
+  // RELIABLE whale stats from fills — no candles needed (closedPnl is the whale's real realized PnL)
+  let whaleRealized = 0, whaleWins = 0, whaleLosses = 0;
+  for (const f of fills) {
+    const cp = parseFloat(f.closedPnl || 0);
+    if (cp > 0) whaleWins++; else if (cp < 0) whaleLosses++;
+    whaleRealized += cp;
+  }
+  // win rate by price direction across detected new-trade cycles (also reliable, leverage-independent)
+  let cWins = 0, cLosses = 0, moveSum = 0, cClosed = 0;
+  for (const cy of cycles) {
+    if (cy.stillOpen) continue;
+    const move = cy.side === "LONG" ? (cy.exitPx - cy.entry) / cy.entry : (cy.entry - cy.exitPx) / cy.entry;
+    moveSum += move; cClosed++;
+    if (move > 0) cWins++; else cLosses++;
+  }
+  const whale = { realized: whaleRealized, wins: whaleWins, losses: whaleLosses,
+    cWins, cLosses, avgMove: cClosed ? moveSum / cClosed : 0, closedTrades: cClosed };
+  return { cycles, now, fillsN, cyclesN, noData, whale };
 }
 function btSimulate(data, tp, lev, start) {        // pure computation: exits + equity for a given lev/tp
   const FRAC = 0.20, MAXPOS = 5;
-  const { cycles, now, fillsN, cyclesN, noData } = data;
+  const { cycles, now, fillsN, cyclesN, noData, whale } = data;
   for (const cy of cycles) cy.exit = btCycleExit(cy, cy.candles || [], tp, lev, now);
   // event-driven equity simulation (compounding + 5-slot cap)
   let equity = start, peakEq = start, maxDD = 0, wins = 0, losses = 0, count = 0, tpHits = 0, liqs = 0, whaleExits = 0, stillOpen = 0;
@@ -1020,7 +1037,7 @@ function btSimulate(data, tp, lev, start) {        // pure computation: exits + 
     count++;
   }
   settle(Infinity);
-  return { equity, pnl: equity - start, pct: start > 0 ? (equity - start) / start * 100 : 0, count, wins, losses, maxDD, tpHits, liqs, whaleExits, stillOpen, fillsN, cyclesN, noData, lev, tp };
+  return { equity, pnl: equity - start, pct: start > 0 ? (equity - start) / start * 100 : 0, count, wins, losses, maxDD, tpHits, liqs, whaleExits, stillOpen, fillsN, cyclesN, noData, whale, lev, tp };
 }
 async function backtest(addr, tp, lev, start) {
   const data = await btLoadData(addr);
@@ -1037,14 +1054,32 @@ function btBestStrategy(data, start) {
   }
   return best;
 }
+// Reliable whale-quality block from fills' closedPnl — accurate even without candle data.
+function whaleBlockHtml(w) {
+  if (!w) return "";
+  const rp = w.realized >= 0;
+  const tot = w.cWins + w.cLosses;
+  const wr = tot ? Math.round(100 * w.cWins / tot) : 0;
+  return `
+    <div style="margin-bottom:16px;padding:12px 14px;background:rgba(80,140,255,.07);border:1px solid rgba(80,140,255,.25);border-radius:10px">
+      <div class="herolabel" style="margin-bottom:8px">✅ Whale real · 30 Tage (aus echten Fills, ohne Kerzen — 100% zuverlässig)</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px 24px">
+        <div class="statrow"><span>Realisierter PnL</span><span class="num ${rp ? "pos" : "neg"}">${fmtSignedC(w.realized)}</span></div>
+        <div class="statrow"><span>Win rate (Kurs)</span><span class="num">${wr}% · ${w.cWins}W / ${w.cLosses}L</span></div>
+        <div class="statrow" title="durchschnittliche Kursbewegung pro Trade (ohne Hebel)"><span>Ø Bewegung/Trade</span><span class="num ${w.avgMove >= 0 ? "pos" : "neg"}">${(w.avgMove >= 0 ? "+" : "") + (w.avgMove * 100).toFixed(2)}%</span></div>
+        <div class="statrow"><span>Neue Trades</span><span class="num">${w.closedTrades}</span></div>
+      </div>
+    </div>`;
+}
 function renderBacktest(r, addr) {
   const out = document.getElementById("btResult"); if (!out) return;
   const pos = r.pnl >= 0;
   const unreliable = r.cyclesN > 0 && r.noData / r.cyclesN > 0.3;   // >30% of trades have no price history
   const who = addr ? `<a class="waddr" href="https://hypurrscan.io/address/${addr}" target="_blank" rel="noopener">${addr.slice(0, 6)}…${addr.slice(-4)}</a>` : "";
   out.innerHTML = `
-    ${unreliable ? `<div class="setnote err" style="margin-bottom:14px;padding:12px;line-height:1.5">⚠ <b>Nicht zuverlässig backtestbar.</b> ${r.noData} von ${r.cyclesN} Trades dieses Wallets laufen auf tokenisierten Stock-/Builder-Perps ohne öffentliche Kurs-Historie. Ohne den Kursverlauf während des Trades lässt sich nicht bestimmen, ob ein Hebel-Trade liquidiert worden wäre — die Zahl unten ist daher unzuverlässig (eher zu optimistisch). Teste ein Wallet, das normale Krypto-Perps (BTC, ETH, SOL …) handelt, für ein belastbares Ergebnis.</div>` : ""}
-    <div class="hero" style="margin-bottom:16px${unreliable ? ";opacity:.55" : ""}"><span class="herolabel">Result · 30 days ${who}</span><span class="heroval num ${pos ? "pos" : "neg"}" style="font-size:2.2rem">${fmtSignedC(r.pnl)}</span></div>
+    ${whaleBlockHtml(r.whale)}
+    ${unreliable ? `<div class="setnote err" style="margin-bottom:14px;padding:12px;line-height:1.5">⚠ <b>Hebel-Kopie nicht zuverlässig simulierbar.</b> ${r.noData} von ${r.cyclesN} Trades laufen auf Stock-/Builder-Perps ohne Kurs-Historie — ob deine gehebelte Kopie zwischendurch liquidiert worden wäre, ist nicht bestimmbar. Der echte Whale-PnL oben stimmt; die geschätzte Kopie-Rendite unten ist eher zu optimistisch.</div>` : ""}
+    <div class="hero" style="margin-bottom:16px${unreliable ? ";opacity:.55" : ""}"><span class="herolabel">Kopie-Schätzung · ${r.lev}× Hebel · 30 days</span><span class="heroval num ${pos ? "pos" : "neg"}" style="font-size:2.2rem">${fmtSignedC(r.pnl)}</span></div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px 24px;margin-bottom:12px">
       <div class="statrow"><span>Return</span><span class="num ${pos ? "pos" : "neg"}">${(r.pct >= 0 ? "+" : "") + r.pct.toFixed(1)}%</span></div>
       <div class="statrow"><span>End balance</span><span class="num">${fmtUsdC(r.equity)}</span></div>
@@ -1115,6 +1150,7 @@ function renderBestStrategy(r, addr, data) {
   const unreliable = r.cyclesN > 0 && r.noData / r.cyclesN > 0.3;
   const who = addr ? `<a class="waddr" href="https://hypurrscan.io/address/${addr}" target="_blank" rel="noopener">${addr.slice(0, 6)}…${addr.slice(-4)}</a>` : "";
   out.innerHTML = `
+    ${whaleBlockHtml(r.whale)}
     ${unreliable ? `<div class="setnote err" style="margin-bottom:14px;padding:12px;line-height:1.5">⚠ <b>Nicht zuverlässig.</b> ${r.noData} von ${r.cyclesN} Trades laufen auf Stock-/Builder-Perps ohne Kurs-Historie. Die „beste" Kombination optimiert hier nur auf fehlende Liquidationsdaten und wählt künstlich hohen Hebel — bei echtem Geld führt das zu Totalverlust. Aussagekräftig nur bei Wallets mit normalen Krypto-Perps.</div>` : ""}
     <div class="hero" style="margin-bottom:8px${unreliable ? ";opacity:.55" : ""}"><span class="herolabel">🏆 Beste Strategie · 30 days ${who}</span><span class="heroval num ${pos ? "pos" : "neg"}" style="font-size:2.2rem">${(r.pct >= 0 ? "+" : "") + r.pct.toFixed(1)}%</span></div>
     <div class="hero" style="margin-bottom:16px;background:rgba(60,200,140,.08);border-radius:10px;padding:10px 14px">
