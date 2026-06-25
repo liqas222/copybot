@@ -405,6 +405,11 @@
   .octoprog { font-family: var(--mono); font-size: 12px; color: var(--muted); }
   .smartcd-h { font-family: var(--mono); font-size: 11.5px; color: var(--purple); background: rgba(168,85,247,.12);
     border: 1px solid rgba(168,85,247,.3); border-radius: 999px; padding: 2px 9px; letter-spacing: .3px; }
+  .scanbox { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 10px 12px; border-radius: 12px;
+    border: 1px solid rgba(168,85,247,.25); background: radial-gradient(120% 120% at 0% 0%, rgba(168,85,247,.10), transparent 60%); }
+  #scanRadar { width: 56px; height: 56px; flex-shrink: 0; }
+  .scantitle { font-weight: 600; font-size: 13px; color: var(--text); display: flex; align-items: center; gap: 7px; }
+  .scandot { width: 7px; height: 7px; border-radius: 50%; background: var(--long); box-shadow: 0 0 8px var(--long); animation: ledPulse 1.6s ease-in-out infinite; }
   /* boredom screensaver */
   #chillBtn { position: fixed; right: 18px; bottom: 18px; z-index: 300; width: 46px; height: 46px; border-radius: 50%;
     border: 1px solid rgba(168,85,247,.5); background: radial-gradient(circle at 30% 30%, #a855f7, #6366f1); color: #fff;
@@ -1427,6 +1432,34 @@ function octoLoop(ts) {
   OCTO.raf = requestAnimationFrame(octoLoop);
 }
 window.addEventListener("resize", () => { if (OCTO.raf) octoResize(); });
+/* ---------- smart-money live-scan radar ---------- */
+const SCAN = { raf: 0, last: 0, t: 0, blips: null };
+function scanRadarStart() { if (!SCAN.raf) { SCAN.last = 0; SCAN.raf = requestAnimationFrame(scanRadarLoop); } }
+function scanRadarLoop(ts) {
+  const c = document.getElementById("scanRadar");
+  const view = document.getElementById("view-smart");
+  if (!c || !view || !view.classList.contains("active")) { SCAN.raf = 0; return; }  // self-stop when gone/hidden
+  const dt = SCAN.last ? Math.min((ts - SCAN.last) / 1000, 0.05) : 0.016; SCAN.last = ts; SCAN.t += dt;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2), S = 56;
+  if (c.width !== S * dpr) { c.width = S * dpr; c.height = S * dpr; }
+  const x = c.getContext("2d"); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, S, S);
+  const cx = S / 2, cy = S / 2, R = S / 2 - 3;
+  if (!SCAN.blips) SCAN.blips = Array.from({ length: 5 }, () => ({ a: Math.random() * 6.28, r: 0.3 + Math.random() * 0.65 }));
+  // rings + crosshair
+  x.strokeStyle = "rgba(168,85,247,.28)"; x.lineWidth = 1;
+  for (const rr of [R, R * 0.66, R * 0.33]) { x.beginPath(); x.arc(cx, cy, rr, 0, 7); x.stroke(); }
+  x.beginPath(); x.moveTo(cx - R, cy); x.lineTo(cx + R, cy); x.moveTo(cx, cy - R); x.lineTo(cx, cy + R); x.stroke();
+  // sweeping wedge (~3.5s per rotation)
+  const ang = (SCAN.t * 1.8) % 6.2832;
+  for (let i = 0; i < 26; i++) { const a = ang - i * 0.05; x.strokeStyle = `rgba(168,85,247,${(1 - i / 26) * 0.5})`; x.lineWidth = 2;
+    x.beginPath(); x.moveTo(cx, cy); x.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R); x.stroke(); }
+  x.strokeStyle = "rgba(216,180,254,.95)"; x.lineWidth = 1.6; x.beginPath(); x.moveTo(cx, cy); x.lineTo(cx + Math.cos(ang) * R, cy + Math.sin(ang) * R); x.stroke();
+  // blips light up as the sweep passes
+  for (const b of SCAN.blips) { let d = ((ang - b.a) % 6.2832 + 6.2832) % 6.2832; const lit = Math.max(0, 1 - d * 1.6);
+    const bx = cx + Math.cos(b.a) * R * b.r, by = cy + Math.sin(b.a) * R * b.r;
+    x.fillStyle = `rgba(56,224,140,${0.25 + lit * 0.75})`; x.beginPath(); x.arc(bx, by, 1.6 + lit * 1.6, 0, 7); x.fill(); }
+  SCAN.raf = requestAnimationFrame(scanRadarLoop);
+}
 let SMART_VIEWMODE = "", smartNextMs = 0;
 function smartCountdownTick() {
   const el = document.getElementById("smartCountdown"); if (!el) return;
@@ -1475,10 +1508,13 @@ function renderSmart(sm) {
         <div class="statrow"><span>Take-Profit</span><span class="num">+${sm.tp_pct}% ROE</span></div>
         <div class="statrow"><span>Exit</span><span class="num">nur TP / Liquidation</span></div>
       </div>
-      <div class="setnote" style="margin-top:10px">📡 Trades werden <b>24/7</b> gescannt · alle ~60s über alle ${sm.tracked || 0} Trader.</div>
+      <div class="scanbox"><canvas id="scanRadar" width="56" height="56"></canvas>
+        <div><div class="scantitle"><span class="scandot"></span>Live-Scan aktiv</div>
+        <div class="setnote" style="margin:2px 0 0">24/7 · alle ~60s über ${sm.tracked || 0} Trader</div></div></div>
     </div>`;
   smartNextMs = sm.next_build_ms || 0;
   smartCountdownTick();
+  scanRadarStart();
   renderSmartAux(sm);
 }
 function renderSmartAux(sm) {
@@ -1960,6 +1996,7 @@ function showView(name) {
   try { localStorage.setItem("ccView", name); } catch (e) {}
   if (name === "finder" && !_lb && !finderRunning && typeof runFinder === "function") runFinder();
   if (typeof pgStop === "function") { if (name === "arcade") setTimeout(pgOpen, 0); else pgStop(); }
+  if (name === "smart" && typeof scanRadarStart === "function") setTimeout(scanRadarStart, 0);
 }
 function initNav() {
   document.querySelectorAll(".navitem").forEach((n) => n.addEventListener("click", () => showView(n.dataset.view)));
