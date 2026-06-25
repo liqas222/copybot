@@ -304,6 +304,15 @@
       <aside class="side col-left">
         <section class="panel" id="myPortfolio"><header class="phead"><span class="wlabel">My Portfolio</span></header><div class="state small">Loading…</div></section>
         <section class="panel" id="myPerf"><header class="phead"><span class="wlabel">My Performance</span></header><div class="state small">Loading…</div></section>
+        <section class="panel" id="backtest">
+          <header class="phead"><span class="wlabel">Copy Backtest</span><span class="meta">30d</span></header>
+          <div class="pbody">
+            <div class="setrow"><label>Take-Profit</label><span class="ingrp"><input id="btTp" class="numin" type="number" min="1" max="1000" step="1" value="12"><span class="unit">% ROE</span></span></div>
+            <div class="setrow"><label>Start balance</label><span class="ingrp"><input id="btStart" class="numin" type="number" min="1" step="100" value="1000"><span class="unit">$</span></span></div>
+            <button class="btn" onclick="runBacktest()">▶ Run backtest</button>
+            <div id="btResult"><div class="setnote">Simuliert die letzten 30 Tage des kopierten Whales mit deiner Strategie: 6× Hebel, 20% Margin/Trade, max 5 Positionen.</div></div>
+          </div>
+        </section>
         <section class="panel" id="marketWatch"><header class="phead"><span class="wlabel">Market Watch</span><span class="meta">24h</span></header><div class="state small">Loading…</div></section>
         <section class="panel" id="myClosed"><header class="phead"><span class="wlabel">Closed Trades</span></header><div class="state small">Loading…</div></section>
       </aside>
@@ -792,6 +801,117 @@ function liqTier(coin) {
 function liqDot(coin) {
   const t = liqTier(coin); if (!t) return "";
   return `<span class="liqdot ${t.c}" title="${esc(t.t)}"></span>`;
+}
+
+/* ---------- copy backtest: replay the copied whale's last 30d with my strategy ---------- */
+let backtestRunning = false;
+function btInterval(span) {
+  const ivs = [["1m", 60000], ["5m", 300000], ["15m", 900000], ["1h", 3600000], ["4h", 14400000], ["1d", 86400000]];
+  for (const it of ivs) { if (span / it[1] <= 4500) return it; }
+  return ivs[ivs.length - 1];
+}
+async function btCandles(coin, rawCoin, from, to, ivName) {
+  const coins = [coin, rawCoin].filter((c, i, a) => c && a.indexOf(c) === i);
+  for (const cn of coins) {
+    try {
+      const c = await post({ type: "candleSnapshot", req: { coin: cn, interval: ivName, startTime: from, endTime: to } });
+      const arr = Array.isArray(c) ? c : [];
+      if (arr.length) { arr.sort((a, b) => (+a.t) - (+b.t)); return arr; }
+    } catch (e) { /* try next */ }
+  }
+  return [];
+}
+function btBuildCycles(fills, from) {            // pair fills into position cycles (open -> close)
+  const grp = {};
+  for (const f of fills || []) { const c = f.coin || "", bare = c.includes(":") ? c.split(":")[1] : c; (grp[bare] = grp[bare] || []).push(f); }
+  const cycles = [];
+  for (const coin in grp) {
+    const arr = grp[coin].sort((a, b) => a.time - b.time);
+    let openT = null, openPx = 0, side = null, rawCoin = null;
+    for (const f of arr) {
+      const start = parseFloat(f.startPosition || 0), sz = parseFloat(f.sz || 0);
+      const after = start + (f.side === "B" ? sz : -sz);
+      if (Math.abs(start) < 1e-9 && Math.abs(after) > 1e-9) { openT = f.time; openPx = parseFloat(f.px || 0); side = after > 0 ? "LONG" : "SHORT"; rawCoin = f.coin || coin; }
+      if (Math.abs(after) < 1e-9 && openT != null) { cycles.push({ coin, rawCoin, side, entry: openPx, openT, closeT: f.time, exitPx: parseFloat(f.px || 0) }); openT = null; }
+    }
+  }
+  return cycles.filter((cy) => cy.openT >= from && cy.entry > 0);
+}
+function btCycleExit(cy, candles, tp, lev) {     // when would my copy have exited: TP, liq, or whale-close
+  const tpPx = cy.side === "LONG" ? cy.entry * (1 + tp / lev) : cy.entry * (1 - tp / lev);
+  const liqPx = cy.side === "LONG" ? cy.entry * (1 - 1 / lev) : cy.entry * (1 + 1 / lev);
+  for (const k of candles) {
+    const t = +k.t;
+    if (t < cy.openT || t > cy.closeT) continue;
+    const hi = parseFloat(k.h), lo = parseFloat(k.l);
+    if (cy.side === "LONG") { if (lo <= liqPx) return { t, px: liqPx, reason: "liq" }; if (hi >= tpPx) return { t, px: tpPx, reason: "tp" }; }
+    else { if (hi >= liqPx) return { t, px: liqPx, reason: "liq" }; if (lo <= tpPx) return { t, px: tpPx, reason: "tp" }; }
+  }
+  return { t: cy.closeT, px: cy.exitPx, reason: "whale" };
+}
+async function backtest(addr, tp, start) {
+  const lev = (lastBotStatus && lastBotStatus.fixed_lev) || 6, FRAC = 0.20, MAXPOS = 5;
+  const now = Date.now(), from = now - 30 * 86400000;
+  const fills = await post({ type: "userFillsByTime", user: addr, startTime: from, endTime: now });
+  let cycles = btBuildCycles(fills, from).sort((a, b) => a.openT - b.openT);
+  if (cycles.length > 200) cycles = cycles.slice(-200);
+  const iv = btInterval(now - from), byCoin = {};
+  const uniq = Array.from(new Set(cycles.map((c) => c.coin)));
+  await Promise.all(uniq.map(async (coin) => {
+    const cy = cycles.find((c) => c.coin === coin);
+    byCoin[coin] = await btCandles(coin, cy ? cy.rawCoin : null, from - iv[1], now, iv[0]);
+  }));
+  for (const cy of cycles) cy.exit = btCycleExit(cy, byCoin[cy.coin] || [], tp, lev);
+  // event-driven equity simulation (compounding + 5-slot cap)
+  let equity = start, peakEq = start, maxDD = 0, wins = 0, losses = 0, count = 0, tpHits = 0, liqs = 0, whaleExits = 0;
+  let open = [];
+  const settle = (untilT) => {
+    open.sort((a, b) => a.exitT - b.exitT);
+    while (open.length && open[0].exitT <= untilT) {
+      const tr = open.shift(); equity += tr.pnl;
+      if (tr.pnl > 0) wins++; else losses++;
+      peakEq = Math.max(peakEq, equity); maxDD = Math.max(maxDD, peakEq > 0 ? (peakEq - equity) / peakEq : 0);
+    }
+  };
+  for (const cy of cycles) {
+    settle(cy.openT);
+    if (open.length >= MAXPOS) continue;
+    const margin = equity * FRAC; if (margin <= 0) continue;
+    const size = margin * lev / cy.entry, sign = cy.side === "LONG" ? 1 : -1;
+    let pnl = cy.exit.reason === "liq" ? -margin : sign * size * (cy.exit.px - cy.entry);
+    if (pnl < -margin) pnl = -margin;
+    if (cy.exit.reason === "tp") tpHits++; else if (cy.exit.reason === "liq") liqs++; else whaleExits++;
+    open.push({ exitT: cy.exit.t, pnl }); count++;
+  }
+  settle(Infinity);
+  return { equity, pnl: equity - start, pct: start > 0 ? (equity - start) / start * 100 : 0, count, wins, losses, maxDD, tpHits, liqs, whaleExits };
+}
+function renderBacktest(r) {
+  const out = document.getElementById("btResult"); if (!out) return;
+  const pos = r.pnl >= 0;
+  out.innerHTML = `
+    <div class="hero"><span class="herolabel">Result · 30 days</span><span class="heroval num ${pos ? "pos" : "neg"}">${fmtSignedC(r.pnl)}</span></div>
+    <div class="statrow"><span>Return</span><span class="num ${pos ? "pos" : "neg"}">${(r.pct >= 0 ? "+" : "") + r.pct.toFixed(1)}%</span></div>
+    <div class="statrow"><span>End balance</span><span class="num">${fmtUsdC(r.equity)}</span></div>
+    <div class="statrow"><span>Trades</span><span class="num">${r.count}</span></div>
+    <div class="statrow"><span>Win rate</span><span class="num">${r.count ? Math.round(100 * r.wins / r.count) : 0}% · ${r.wins}W / ${r.losses}L</span></div>
+    <div class="statrow"><span>Max drawdown</span><span class="num neg">-${(r.maxDD * 100).toFixed(1)}%</span></div>
+    <div class="statrow" title="how trades closed"><span>TP · Liq · Whale-exit</span><span class="num">${r.tpHits} · ${r.liqs} · ${r.whaleExits}</span></div>
+    <div class="setnote">Annahmen: Entry = Whale-Entry, 6× Hebel, 20% Margin/Trade, max 5 gleichzeitig. Gebühren, Funding & Kill-Switch nicht modelliert → Näherung.</div>`;
+}
+async function runBacktest() {
+  if (backtestRunning) return;
+  const out = document.getElementById("btResult");
+  const tp = parseFloat((document.getElementById("btTp") || {}).value) / 100;
+  const start = parseFloat((document.getElementById("btStart") || {}).value);
+  if (!(tp > 0) || !(start > 0)) { if (out) out.innerHTML = `<div class="setnote err">Bitte gültige Werte für TP und Startguthaben eingeben.</div>`; return; }
+  const cw = (WALLETS || []).find((w) => w.copied);
+  if (!cw) { if (out) out.innerHTML = `<div class="setnote err">Keine kopierte Wallet gefunden.</div>`; return; }
+  backtestRunning = true;
+  if (out) out.innerHTML = `<div class="state small">Backtest läuft… Trades &amp; Candles werden geladen.</div>`;
+  try { renderBacktest(await backtest(cw.addr, tp, start)); }
+  catch (e) { if (out) out.innerHTML = `<div class="setnote err">Backtest fehlgeschlagen (Rate-Limit oder keine Daten). Nochmal versuchen.</div>`; }
+  backtestRunning = false;
 }
 
 /* ---------- format ---------- */
