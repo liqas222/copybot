@@ -100,6 +100,7 @@ EX   = {"ex": None}
 # It only ever CLOSES positions it opened itself (tracked in LIVE["owned"]),
 # never the user's other/manual positions. Settings live in config.json (gitignored).
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+LIVE_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live_state.json")
 LIVE = {
     "enabled": False,        # master on/off (persisted)
     "max_lev": FIXED_LEV,    # hard leverage cap for live trades (persisted, settable)
@@ -1233,6 +1234,30 @@ def live_save_config():
     except Exception as e:
         print("live_save_config error:", e)
 
+def live_save_state():
+    """Persist which positions the engine opened (owned) + the closed-trade log, so a
+    restart doesn't forget them. Without this, a position opened before a restart and
+    take-profited after it would never be recorded or notified."""
+    try:
+        owned = [{"dex": k[0], "bare": k[1], "meta": m} for k, m in LIVE["owned"].items()]
+        tmp = LIVE_STATE_FILE + ".tmp"
+        json.dump({"owned": owned, "closed": LIVE["closed"][-100:]}, open(tmp, "w"))
+        os.replace(tmp, LIVE_STATE_FILE)
+    except Exception as e:
+        print("live_save_state error:", e)
+
+def live_load_state():
+    if not os.path.exists(LIVE_STATE_FILE):
+        return
+    try:
+        d = json.load(open(LIVE_STATE_FILE))
+        LIVE["owned"] = {(o["dex"], o["bare"]): (o.get("meta") or {}) for o in d.get("owned", [])}
+        LIVE["closed"] = d.get("closed", []) or []
+        if LIVE["owned"] or LIVE["closed"]:
+            print("live_state.json loaded: %d owned, %d closed" % (len(LIVE["owned"]), len(LIVE["closed"])))
+    except Exception as e:
+        print("live_load_state error:", e)
+
 def live_init():
     """Lazily import the SDK and build the Exchange from the agent key in config.json.
     Returns (ok, message). Safe to call repeatedly; only builds once."""
@@ -1301,6 +1326,7 @@ def live_open(w, equity):
             LIVE["owned"][w["key"]] = {"coin": coin, "bare": w["bare"], "side": w["side"],
                                        "entry": entry, "margin": round(margin, 2), "sz": sz,
                                        "lev": lev, "opened_ms": int(time.time() * 1000)}
+        live_save_state()   # survive restarts so a later TP close is still tracked + notified
         # OPEN notification — includes the margin you asked for
         live_log("✅ OPEN %s %s · Margin $%.2f · %d× %s · Entry ~$%.4f · TP +%.0f%% ROE @ $%s"
                  % (w["bare"], w["side"], margin, lev,
@@ -1345,6 +1371,7 @@ def live_record_close(key, reason):
                     "+" if roe >= 0 else "-", abs(roe) * 100), "close")
     else:
         live_log("🔻 CLOSE %s %s (%s) · PnL wird von Hyperliquid abgerechnet" % (side, bare, reason), "close")
+    live_save_state()
 
 
 def live_flatten():
@@ -1409,6 +1436,7 @@ def run_live():
     """Daemon loop. Idle while disabled; when enabled, mirror the whale with REAL
     orders using the same open/close confirmation as the paper engine."""
     live_load_config()
+    live_load_state()   # restore engine-owned positions + closed log across restarts
     known = set(); based = set(); miss = {}; openseen = {}
     announced = False; was_enabled = False; day = None; last_pub = 0
     while True:
