@@ -100,6 +100,7 @@ CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.j
 LIVE = {
     "enabled": False,        # master on/off (persisted)
     "max_lev": FIXED_LEV,    # hard leverage cap for live trades (persisted, settable)
+    "killswitch": True,      # daily -25% loss halt; can be switched off from the dashboard (persisted)
     "ready": False,          # key loaded + SDK importable + Exchange built
     "err": "",               # last init/runtime error (shown on the dashboard)
     "addr": "",              # account address the agent trades for
@@ -554,14 +555,18 @@ class Handler(BaseHTTPRequestHandler):
             ln = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(ln).decode("utf-8", "ignore") if ln > 0 else ""
             body = urllib.parse.parse_qs(raw)
-            try:
-                ml = int(float(body.get("max_lev", [""])[0]))
-                LIVE["max_lev"] = max(1, min(ml, 40))
-            except Exception:
-                pass
+            if "max_lev" in body:
+                try:
+                    ml = int(float(body.get("max_lev", [""])[0]))
+                    LIVE["max_lev"] = max(1, min(ml, 40))
+                    tg("⚙️ LIVE Leverage-Cap = %d× (gilt für neue Live-Trades)" % LIVE["max_lev"])
+                except Exception:
+                    pass
+            if "killswitch" in body:
+                LIVE["killswitch"] = (body.get("killswitch", [""])[0] == "1")
+                tg("⚙️ LIVE Kill-Switch %s" % ("AN (−%.0f%% Tagesstopp)" % (DAILY_LOSS_LIMIT * 100) if LIVE["killswitch"] else "AUS — keine automatische Verlustbremse!"))
             live_save_config()
-            tg("⚙️ LIVE Leverage-Cap = %d× (gilt für neue Live-Trades)" % LIVE["max_lev"])
-            return self._send(200, json.dumps({"ok": True, "max_lev": LIVE["max_lev"], "lev": live_lev()}))
+            return self._send(200, json.dumps({"ok": True, "max_lev": LIVE["max_lev"], "lev": live_lev(), "killswitch": LIVE["killswitch"]}))
         elif path == "/live_flatten":
             threading.Thread(target=live_flatten, daemon=True).start()
             return self._send(200, json.dumps({"ok": True}))
@@ -1137,6 +1142,8 @@ def live_load_config():
     try:
         d = json.load(open(CONFIG_FILE))
         LIVE["enabled"] = bool(d.get("live_enabled", False))
+        if "live_killswitch" in d:
+            LIVE["killswitch"] = bool(d.get("live_killswitch"))
         ml = d.get("live_max_lev")
         if ml:
             LIVE["max_lev"] = max(1, min(int(ml), 40))
@@ -1152,6 +1159,7 @@ def live_save_config():
             except Exception: d = {}
         d["live_enabled"] = bool(LIVE["enabled"])
         d["live_max_lev"] = int(LIVE["max_lev"])
+        d["live_killswitch"] = bool(LIVE["killswitch"])
         tmp = CONFIG_FILE + ".tmp"
         json.dump(d, open(tmp, "w"))
         os.replace(tmp, CONFIG_FILE)
@@ -1288,7 +1296,7 @@ def live_publish():
         STATE["live"] = {
             "enabled": LIVE["enabled"], "ready": LIVE["ready"], "err": LIVE["err"],
             "net": LIVE["net"], "addr": LIVE["addr"], "equity": round(LIVE["equity"], 2),
-            "day_pnl": day_pnl, "killed": LIVE["killed"], "max_lev": LIVE["max_lev"],
+            "day_pnl": day_pnl, "killed": LIVE["killed"], "killswitch": LIVE["killswitch"], "max_lev": LIVE["max_lev"],
             "lev": live_lev(), "capital_pct": round(CAPITAL_FRACTION * 100, 1),
             "max_positions": MAX_POSITIONS, "tp_crypto_pct": round(SET["tp_crypto"] * 100, 2),
             "tp_stock_pct": round(SET["tp_stock"] * 100, 2), "daily_loss_pct": round(DAILY_LOSS_LIMIT * 100, 1),
@@ -1328,9 +1336,12 @@ def run_live():
                 live_log("🌅 Neuer Tag — Kill-Switch zurückgesetzt.", "info")
 
             equity = get_equity(EXEC_URL, LIVE["addr"]); LIVE["equity"] = equity
-            if not LIVE["killed"] and LIVE["day_start_eq"] > 0 and equity <= LIVE["day_start_eq"] * (1 - DAILY_LOSS_LIMIT):
-                LIVE["killed"] = True
-                live_log("🛑 KILL-SWITCH: −%.0f%% heute. Keine neuen Trades." % (DAILY_LOSS_LIMIT * 100), "kill")
+            if LIVE["killswitch"]:
+                if not LIVE["killed"] and LIVE["day_start_eq"] > 0 and equity <= LIVE["day_start_eq"] * (1 - DAILY_LOSS_LIMIT):
+                    LIVE["killed"] = True
+                    live_log("🛑 KILL-SWITCH: −%.0f%% heute. Keine neuen Trades." % (DAILY_LOSS_LIMIT * 100), "kill")
+            elif LIVE["killed"]:
+                LIVE["killed"] = False   # switched off -> lift any active halt
 
             whale, okdex = get_positions_ex(SOURCE_URL, WHALE)
             if COIN_WHITELIST is not None:
