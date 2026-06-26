@@ -147,6 +147,31 @@
   .pgbtn.long { background: linear-gradient(180deg, #16e08a, #0f9d63); box-shadow: 0 12px 30px -14px rgba(34,197,94,.7); }
   .pgbtn.short { background: linear-gradient(180deg, #ff5a6e, #d12f43); box-shadow: 0 12px 30px -14px rgba(239,68,68,.7); }
   .pgbtn.long:hover:not(:disabled), .pgbtn.short:hover:not(:disabled) { box-shadow: 0 16px 38px -12px rgba(168,85,247,.6); }
+  /* arcade game switcher */
+  .gametabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .gametab { padding: 9px 16px; border-radius: 11px; border: 1px solid var(--line); background: rgba(255,255,255,.02);
+    color: var(--muted); font-family: "Chakra Petch", var(--ui); font-weight: 600; font-size: 14px; cursor: pointer; transition: all .15s; }
+  .gametab:hover { color: var(--text); border-color: rgba(168,85,247,.4); }
+  .gametab.active { color: #fff; border-color: transparent; background: var(--grad); box-shadow: 0 10px 26px -12px rgba(168,85,247,.7); }
+  .arcadegame { display: none; } .arcadegame.active { display: block; }
+  /* Memecoin Flip */
+  .flboard { display: grid; grid-template-columns: 1fr auto 1fr; align-items: stretch; gap: 12px; margin-bottom: 6px; }
+  .flcard { border: 1px solid var(--line); border-radius: 16px; padding: 22px 14px; text-align: center;
+    background: radial-gradient(120% 120% at 50% 0%, rgba(168,85,247,.08), transparent 65%); transition: border-color .25s, box-shadow .25s, transform .25s; }
+  .flcard.win { border-color: rgba(34,197,94,.6); box-shadow: 0 0 0 1px rgba(34,197,94,.4), 0 14px 36px -14px rgba(34,197,94,.6); }
+  .flcard.lose { border-color: rgba(239,68,68,.6); box-shadow: 0 0 0 1px rgba(239,68,68,.4), 0 14px 36px -14px rgba(239,68,68,.6); }
+  .flcoin { width: 58px; height: 58px; margin: 0 auto 12px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-family: "Chakra Petch", var(--ui); font-weight: 800; font-size: 18px; color: #fff; letter-spacing: .5px;
+    background: linear-gradient(140deg, #a855f7, #6366f1); box-shadow: 0 8px 22px -8px rgba(168,85,247,.7); }
+  .flname { font-weight: 700; font-size: 16px; color: var(--text); }
+  .flcap { font-family: var(--mono); font-weight: 800; font-size: 26px; margin-top: 6px;
+    background: var(--grad); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .flcap.mute { background: none; -webkit-text-fill-color: var(--muted); color: var(--muted); }
+  .fltag { font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); font-family: var(--mono); margin-top: 8px; }
+  .flvs { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-width: 64px; }
+  .flvsmark { font-family: "Chakra Petch", var(--ui); font-weight: 800; font-size: 20px; color: var(--muted); opacity: .7; }
+  .flmsg { font-family: "Chakra Petch", var(--ui); font-weight: 700; font-size: 14px; min-height: 18px; text-align: center; }
+  .flmsg.ok { color: var(--long); } .flmsg.err { color: var(--short); }
   .tkitem { cursor: pointer; }
   .modal { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
   .modalbg { position: absolute; inset: 0; background: rgba(4,6,10,.74); backdrop-filter: blur(3px); }
@@ -554,7 +579,11 @@
           </section>
         </section>
         <section class="view" id="view-arcade">
-          <section class="panel" id="arcadePanel">
+          <div class="gametabs">
+            <button class="gametab active" data-game="pump" onclick="arcadePick('pump')">🎮 Pump or Dump</button>
+            <button class="gametab" data-game="flip" onclick="arcadePick('flip')">🎲 Memecoin Flip</button>
+          </div>
+          <section class="panel arcadegame active" id="arcadePanel" data-game="pump">
             <header class="phead"><span class="wlabel">Pump or Dump</span><span class="meta">erreiche oben oder unten</span></header>
             <div class="pbody">
               <div class="pgstats">
@@ -570,6 +599,41 @@
               </div>
               <button class="btn" id="pgRestart" style="display:none;width:100%;margin-top:10px" onclick="pgReset()">↻ Nochmal</button>
               <div class="setnote">Die Linie bewegt sich smooth auf und ab. Tippe LONG (sie soll ganz nach <b>oben</b>) oder SHORT (ganz nach <b>unten</b>). Erreicht sie deine Seite → Treffer &amp; Streak wächst. Erreicht sie die Gegenseite → 💥 REKT.</div>
+            </div>
+          </section>
+          <section class="panel arcadegame" id="flipPanel" data-game="flip">
+            <header class="phead"><span class="wlabel">Memecoin Flip</span><span class="meta">höher oder tiefer?</span></header>
+            <div class="pbody">
+              <div class="pgstats">
+                <div class="pgstat"><span class="pglbl">Streak</span><span class="num" id="flScore">0</span></div>
+                <div class="pgstat"><span class="pglbl">Best</span><span class="num" id="flBest">0</span></div>
+                <div class="pgstat"><span class="pglbl">Coins</span><span class="num" id="flSeen">0</span></div>
+                <div class="pgstat"><span class="pglbl">Status</span><span class="num pos" id="flState">live</span></div>
+              </div>
+              <div class="flboard">
+                <div class="flcard" id="flLeft">
+                  <div class="flcoin" id="flLcoin">DOGE</div>
+                  <div class="flname" id="flLname">Dogecoin</div>
+                  <div class="flcap" id="flLcap">$0</div>
+                  <div class="fltag">Market Cap</div>
+                </div>
+                <div class="flvs">
+                  <span class="flvsmark">VS</span>
+                  <div class="flmsg" id="flMsg"></div>
+                </div>
+                <div class="flcard" id="flRight">
+                  <div class="flcoin" id="flRcoin">?</div>
+                  <div class="flname" id="flRname">???</div>
+                  <div class="flcap mute" id="flRcap">?</div>
+                  <div class="fltag">höher oder tiefer als links?</div>
+                </div>
+              </div>
+              <div class="pgbtns">
+                <button class="pgbtn long" id="flHigher" onclick="flGuess('hi')">▲ HÖHER</button>
+                <button class="pgbtn short" id="flLower" onclick="flGuess('lo')">▼ TIEFER</button>
+              </div>
+              <button class="btn" id="flRestart" style="display:none;width:100%;margin-top:10px" onclick="flReset()">↻ Nochmal</button>
+              <div class="setnote">Hat die <b>rechte</b> Memecoin eine höhere oder tiefere Market Cap als die linke? Richtig getippt → die rechte rückt nach links, eine neue erscheint, Streak wächst. Falsch → 💥 REKT. (Marktkapitalisierungen sind grobe Richtwerte, nur fürs Spiel.)</div>
             </div>
           </section>
         </section>
@@ -2082,7 +2146,10 @@ function showView(name) {
   if (t) t.textContent = title; if (s) s.innerHTML = sub;
   try { localStorage.setItem("ccView", name); } catch (e) {}
   if (name === "finder" && !_lb && !finderRunning && typeof runFinder === "function") runFinder();
-  if (typeof pgStop === "function") { if (name === "arcade") setTimeout(pgOpen, 0); else pgStop(); }
+  if (typeof pgStop === "function") {
+    if (name === "arcade") { let g = "pump"; try { g = localStorage.getItem("ccArcadeGame") || "pump"; } catch (e) {} setTimeout(() => arcadePick(g), 0); }
+    else { pgStop(); if (typeof flStop === "function") flStop(); }
+  }
   if (name === "smart" && typeof scanRadarStart === "function") { setTimeout(scanRadarStart, 0); setTimeout(scanOctoStart, 0); }
 }
 function initNav() {
@@ -2305,6 +2372,98 @@ function pgOpen() {
   if (!PG.inited) { PG.best = +(localStorage.getItem("pgBest") || 0); PG.inited = true; pgReset(); }
   pgStart();
 }
+
+/* ---------- Arcade: Memecoin Flip (higher / lower) ---------- */
+// market caps are rough ballpark values in USD — for the game only, not live data
+const FLIP_COINS = [
+  ["DOGE", "Dogecoin", 14.2e9], ["SHIB", "Shiba Inu", 5.8e9], ["PEPE", "Pepe", 3.9e9],
+  ["WIF", "dogwifhat", 1.8e9], ["BONK", "Bonk", 1.6e9], ["FLOKI", "Floki", 1.1e9],
+  ["BRETT", "Brett", 920e6], ["POPCAT", "Popcat", 810e6], ["SPX", "SPX6900", 690e6],
+  ["MOG", "Mog Coin", 560e6], ["PNUT", "Peanut", 430e6], ["GOAT", "Goatseus", 380e6],
+  ["TURBO", "Turbo", 340e6], ["MEW", "cat in a dogs world", 290e6], ["BOME", "Book of Meme", 250e6],
+  ["SLERF", "Slerf", 180e6], ["DEGEN", "Degen", 150e6], ["WEN", "Wen", 120e6],
+  ["MYRO", "Myro", 90e6], ["GIGA", "Gigachad", 78e6], ["TOSHI", "Toshi", 64e6],
+  ["LADYS", "Milady", 48e6], ["WOJAK", "Wojak", 22e6],
+];
+const FLIP = { inited: false, score: 0, best: 0, seen: 0, over: false, busy: false, cur: null, next: null, anim: 0 };
+function flFmtCap(v) {
+  if (v >= 1e9) return "$" + (v / 1e9).toFixed(v >= 1e10 ? 1 : 2) + "B";
+  if (v >= 1e6) return "$" + (v / 1e6).toFixed(0) + "M";
+  return "$" + Math.round(v).toLocaleString("en-US");
+}
+function flPick(exclude) { let c; do { c = FLIP_COINS[Math.floor(Math.random() * FLIP_COINS.length)]; } while (exclude && c === exclude); return c; }
+function flPaintCoin(side, c, reveal) {
+  document.getElementById("fl" + side + "coin").textContent = c[0].slice(0, 5);
+  document.getElementById("fl" + side + "name").textContent = c[1];
+  const cap = document.getElementById("fl" + side + "cap");
+  if (reveal) { cap.classList.remove("mute"); cap.textContent = flFmtCap(c[2]); }
+  else { cap.classList.add("mute"); cap.textContent = "?"; }
+}
+function flSet(id, v) { const e = document.getElementById(id); if (e) e.textContent = v; }
+function flReset() {
+  if (!FLIP.inited) { FLIP.best = +(localStorage.getItem("flBest") || 0); FLIP.inited = true; }
+  FLIP.score = 0; FLIP.seen = 2; FLIP.over = FLIP.busy = false;
+  FLIP.cur = flPick(); FLIP.next = flPick(FLIP.cur);
+  flPaintCoin("L", FLIP.cur, true); flPaintCoin("R", FLIP.next, false);
+  document.getElementById("flLeft").className = "flcard"; document.getElementById("flRight").className = "flcard";
+  const m = document.getElementById("flMsg"); m.textContent = ""; m.className = "flmsg";
+  flSet("flScore", 0); flSet("flBest", FLIP.best); flSet("flSeen", 0);
+  const st = document.getElementById("flState"); st.textContent = "live"; st.className = "num pos";
+  document.getElementById("flHigher").disabled = false; document.getElementById("flLower").disabled = false;
+  document.getElementById("flRestart").style.display = "none";
+}
+function flGuess(dir) {
+  if (FLIP.over || FLIP.busy) return;
+  FLIP.busy = true;
+  document.getElementById("flHigher").disabled = true; document.getElementById("flLower").disabled = true;
+  const from = FLIP.cur[2], to = FLIP.next[2];
+  const correct = (dir === "hi") ? (to >= from) : (to <= from);
+  // count-up reveal of the right-hand cap
+  const cap = document.getElementById("flRcap"); cap.classList.remove("mute");
+  const t0 = performance.now(), dur = 700;
+  if (FLIP.anim) cancelAnimationFrame(FLIP.anim);
+  const step = (t) => {
+    const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+    cap.textContent = flFmtCap(to * e);
+    if (k < 1) { FLIP.anim = requestAnimationFrame(step); return; }
+    cap.textContent = flFmtCap(to);
+    flFinish(correct);
+  };
+  FLIP.anim = requestAnimationFrame(step);
+}
+function flFinish(correct) {
+  const right = document.getElementById("flRight"), msg = document.getElementById("flMsg");
+  if (correct) {
+    FLIP.score++; FLIP.seen++;
+    right.className = "flcard win"; msg.textContent = "✓ richtig"; msg.className = "flmsg ok";
+    flSet("flScore", FLIP.score); flSet("flSeen", FLIP.seen - 2);
+    if (FLIP.score > FLIP.best) { FLIP.best = FLIP.score; localStorage.setItem("flBest", FLIP.best); flSet("flBest", FLIP.best); }
+    setTimeout(() => {
+      FLIP.cur = FLIP.next; FLIP.next = flPick(FLIP.cur);
+      flPaintCoin("L", FLIP.cur, true); flPaintCoin("R", FLIP.next, false);
+      document.getElementById("flLeft").className = "flcard"; right.className = "flcard";
+      msg.textContent = ""; msg.className = "flmsg";
+      document.getElementById("flHigher").disabled = false; document.getElementById("flLower").disabled = false;
+      FLIP.busy = false;
+    }, 650);
+  } else {
+    FLIP.over = true; FLIP.busy = false;
+    right.className = "flcard lose"; msg.textContent = "💥 REKT"; msg.className = "flmsg err";
+    const st = document.getElementById("flState"); st.textContent = "rekt"; st.className = "num neg";
+    document.getElementById("flRestart").style.display = "block";
+  }
+}
+function flOpen() { if (!FLIP.inited || FLIP.cur === null) flReset(); }
+
+/* ---------- Arcade: switch between mini-games ---------- */
+function arcadePick(game) {
+  document.querySelectorAll(".gametab").forEach((t) => t.classList.toggle("active", t.dataset.game === game));
+  document.querySelectorAll(".arcadegame").forEach((p) => p.classList.toggle("active", p.dataset.game === game));
+  try { localStorage.setItem("ccArcadeGame", game); } catch (e) {}
+  if (game === "pump") { flStop && flStop(); pgOpen(); }
+  else { pgStop(); flOpen(); }
+}
+function flStop() { if (FLIP.anim) cancelAnimationFrame(FLIP.anim); FLIP.anim = 0; }
 
 /* ---------- Boredom screensaver: cycling animated scenes ---------- */
 const CHILL = { on: false, raf: 0, last: 0, t: 0, scene: 0, sw: 0, W: 0, H: 0, c: null, x: null, st: null };
