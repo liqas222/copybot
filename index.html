@@ -612,6 +612,10 @@
                   </div>
                   <div class="setnote">Live-Hebel = min(Copy-Bot-Hebel, dieser Cap). Aktuell effektiv: <b id="liveEffLev">—</b>×. Take-Profit &amp; Tracking-Wallet änderst du in den normalen <b>Settings</b>.</div>
                 </div>
+                <div class="livemaster" style="margin-top:14px">
+                  <div><div class="livemlabel" style="font-size:14px">Tages-Kill-Switch (−25 %)</div><div class="setnote" id="liveKsNote" style="margin-top:2px">Stoppt neue Trades bei −25 % Tagesverlust.</div></div>
+                  <label class="switch"><input type="checkbox" id="liveKsSwitch" onchange="liveToggleKs(this.checked)"><span class="slider"></span></label>
+                </div>
                 <div class="setnote" style="margin-top:12px">Agent-Key liegt nur in <code>config.json</code> auf dem Server (gitignored, trade-only, kann nicht abheben). Fehlt er, lässt sich die Engine nicht scharf schalten.</div>
               </div>
             </section>
@@ -1635,7 +1639,13 @@ function renderLive(lv) {
   setT("liveEquity", lv.equity != null ? fmtUsdC(lv.equity) : "—");
   money("liveDayPnl", lv.equity != null ? (lv.day_pnl || 0) : null);
   setT("liveOwned", (lv.open_total != null ? lv.open_total : 0) + " / " + (lv.max_positions || 5) + (lv.owned != null ? " · " + lv.owned + " vom Bot" : ""));
-  setT("liveKill", lv.killed ? "🛑 ausgelöst" : "ok");
+  setT("liveKill", lv.killswitch === false ? "⚪ aus" : (lv.killed ? "🛑 ausgelöst" : "ok"));
+  const ks = document.getElementById("liveKsSwitch");
+  if (ks && document.activeElement !== ks && lv.killswitch != null) ks.checked = !!lv.killswitch;
+  const ksn = document.getElementById("liveKsNote");
+  if (ksn) ksn.innerHTML = lv.killswitch === false
+    ? '<span class="neg">⚠️ AUS — keine automatische Verlustbremse</span>'
+    : "Stoppt neue Trades bei −25 % Tagesverlust.";
   setT("liveAddr", lv.addr ? smShort(lv.addr) : "—");
   setT("liveCap", lv.capital_pct != null ? lv.capital_pct + "% Equity" : "—");
   setT("liveMaxPos", lv.max_positions != null ? lv.max_positions : "—");
@@ -1691,6 +1701,15 @@ async function liveSaveSettings() {
       method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "max_lev=" + encodeURIComponent(ml) });
     const j = await r.json();
     if (j.ok) { const e = document.getElementById("liveEffLev"); if (e) e.textContent = j.lev; }
+  } catch (e) { alert("Fehler: " + e); }
+}
+async function liveToggleKs(on) {
+  if (!on && !confirm("Kill-Switch AUS: Bei einem schlechten Tag wird das Live-Trading NICHT mehr automatisch gestoppt (und es gibt keinen Stop-Loss). Volles Verlustrisiko. Wirklich ausschalten?")) {
+    document.getElementById("liveKsSwitch").checked = true; return;
+  }
+  try {
+    await fetch("/live_settings?token=" + encodeURIComponent(DASH_TOKEN), {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "killswitch=" + (on ? "1" : "0") });
   } catch (e) { alert("Fehler: " + e); }
 }
 async function livePanic() {
