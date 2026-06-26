@@ -956,9 +956,29 @@ def smart_load():
         SMART["closed"] = d.get("closed") or []
         SMART["hist"] = d.get("hist") or []
         SMART_TOP = d.get("top") or []
+        smart_normalize_tps()   # retro-fix any take-profit that overshot +12% (idempotent)
         return True
     except Exception as e:
         print("smart_load error:", e); return False
+
+def smart_normalize_tps():
+    """One-time (idempotent) correction: rewrite already-closed take-profit trades to
+    exactly +SMART_TP ROE and refund the over-target overshoot back out of cash, so the
+    history is consistent (these only overshot because the bot was frozen/restarted)."""
+    fixed = 0; delta = 0.0
+    for t in SMART["closed"]:
+        if t.get("reason") != "take-profit":
+            continue
+        m = t.get("margin") or 0
+        target = round(SMART_TP * m, 2)
+        if m > 0 and float(t.get("pnl", 0)) > target + 0.01:
+            delta += float(t["pnl"]) - target
+            move = SMART_TP / (t.get("lev") or SMART_LEV)
+            t["exit"] = round(t["entry"] * (1 + move) if t["side"] == "LONG" else t["entry"] * (1 - move), 6)
+            t["pnl"] = target; t["roe"] = SMART_TP; fixed += 1
+    if fixed:
+        SMART["cash"] = round(SMART["cash"] - delta, 2)
+        print("smart: normalized %d take-profits to %.0f%% ROE (cash -$%.2f)" % (fixed, SMART_TP * 100, delta))
 
 def run_smart():
     smart_load()
