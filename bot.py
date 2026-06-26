@@ -300,16 +300,28 @@ def get_portfolio_value(base, addr):
     spot = get_spot_equity(base, addr)
     return perp, spot, perp + spot
 
-def get_unified_value(base, addr):
-    """Hyperliquid moved to UNIFIED accounts: perp + spot share one collateral pool and
-    the UI shows a single 'Portfolio Value'. The main clearinghouseState's
-    marginSummary.accountValue is exactly that number — use it as the live equity so the
-    dashboard matches Hyperliquid 1:1 (adding spot on top double-counted it)."""
+def get_unrealized_pnl(base, addr):
+    """Sum unrealized PnL across ALL perp dexes (main + HIP-3 builder dexes)."""
+    upnl = 0.0
     try:
-        d = hl_post(base, {"type": "clearinghouseState", "user": addr})
-        return float(d.get("marginSummary", {}).get("accountValue") or 0)
+        for dex, d in _fetch_all_dexes(base, addr):
+            if not d:
+                continue
+            for ap in d.get("assetPositions", []):
+                try:
+                    upnl += float((ap.get("position") or {}).get("unrealizedPnl") or 0)
+                except Exception:
+                    pass
     except Exception:
-        return 0.0
+        pass
+    return upnl
+
+def get_unified_value(base, addr):
+    """Hyperliquid UNIFIED account Portfolio Value = your USDC/spot collateral + the
+    unrealized PnL of all open positions. The per-dex perp 'accountValue' fields are just
+    views of the SAME shared collateral, so they must NOT be summed (that double-counts).
+    This matches the single 'Portfolio Value' number the Hyperliquid UI shows."""
+    return get_spot_equity(base, addr) + get_unrealized_pnl(base, addr)
 
 
 # ---------------- sizing / rounding ----------------
@@ -1409,19 +1421,19 @@ def run_live():
             if not was_enabled:
                 was_enabled = True; LIVE["started_ms"] = int(time.time() * 1000)
                 day = datetime.datetime.now(datetime.timezone.utc).date()
-                LIVE["day_start_eq"] = get_portfolio_value(EXEC_URL, LIVE["addr"])[2]; LIVE["killed"] = False
+                LIVE["day_start_eq"] = get_unified_value(EXEC_URL, LIVE["addr"]); LIVE["killed"] = False
                 live_log("🟢 Engine AKTIV auf %s · Equity $%.2f · %d× · %.0f%%/Trade · max %d Pos."
                          % (LIVE["net"], LIVE["day_start_eq"], live_lev(), CAPITAL_FRACTION * 100, MAX_POSITIONS), "on")
 
             today = datetime.datetime.now(datetime.timezone.utc).date()
             if today != day:
-                day = today; LIVE["day_start_eq"] = get_portfolio_value(EXEC_URL, LIVE["addr"])[2]; LIVE["killed"] = False
+                day = today; LIVE["day_start_eq"] = get_unified_value(EXEC_URL, LIVE["addr"]); LIVE["killed"] = False
                 live_log("🌅 Neuer Tag — Kill-Switch zurückgesetzt.", "info")
 
-            # Show Perp + Spot TOGETHER as one number (unified collateral). Sizing,
-            # kill-switch and headline all use this combined total.
-            perp_eq, spot_eq, equity = get_portfolio_value(EXEC_URL, LIVE["addr"])
-            LIVE["equity"] = equity; LIVE["perp_equity"] = perp_eq; LIVE["spot_equity"] = spot_eq
+            # One unified Portfolio Value (collateral + unrealized PnL), matches the HL UI.
+            # Sizing, kill-switch and headline all use this single number.
+            equity = get_unified_value(EXEC_URL, LIVE["addr"])
+            LIVE["equity"] = equity; LIVE["perp_equity"] = equity; LIVE["spot_equity"] = 0.0
             if LIVE["killswitch"]:
                 if not LIVE["killed"] and LIVE["day_start_eq"] > 0 and equity <= LIVE["day_start_eq"] * (1 - DAILY_LOSS_LIMIT):
                     LIVE["killed"] = True
