@@ -1365,17 +1365,20 @@ def run_live():
             if not was_enabled:
                 was_enabled = True; LIVE["started_ms"] = int(time.time() * 1000)
                 day = datetime.datetime.now(datetime.timezone.utc).date()
-                LIVE["day_start_eq"] = get_portfolio_value(EXEC_URL, LIVE["addr"])[2]; LIVE["killed"] = False
+                LIVE["day_start_eq"] = get_portfolio_value(EXEC_URL, LIVE["addr"])[0]; LIVE["killed"] = False
                 live_log("🟢 Engine AKTIV auf %s · Equity $%.2f · %d× · %.0f%%/Trade · max %d Pos."
                          % (LIVE["net"], LIVE["day_start_eq"], live_lev(), CAPITAL_FRACTION * 100, MAX_POSITIONS), "on")
 
             today = datetime.datetime.now(datetime.timezone.utc).date()
             if today != day:
-                day = today; LIVE["day_start_eq"] = get_portfolio_value(EXEC_URL, LIVE["addr"])[2]; LIVE["killed"] = False
+                day = today; LIVE["day_start_eq"] = get_portfolio_value(EXEC_URL, LIVE["addr"])[0]; LIVE["killed"] = False
                 live_log("🌅 Neuer Tag — Kill-Switch zurückgesetzt.", "info")
 
-            perp_eq, spot_eq, equity = get_portfolio_value(EXEC_URL, LIVE["addr"])
-            LIVE["equity"] = equity; LIVE["perp_equity"] = perp_eq; LIVE["spot_equity"] = spot_eq
+            perp_eq, spot_eq, _total = get_portfolio_value(EXEC_URL, LIVE["addr"])
+            # headline + risk + sizing all use the PERP account (the bot trades perps;
+            # spot is separate money and only shown for info, matching the My Account card).
+            equity = perp_eq
+            LIVE["equity"] = perp_eq; LIVE["perp_equity"] = perp_eq; LIVE["spot_equity"] = spot_eq
             if LIVE["killswitch"]:
                 if not LIVE["killed"] and LIVE["day_start_eq"] > 0 and equity <= LIVE["day_start_eq"] * (1 - DAILY_LOSS_LIMIT):
                     LIVE["killed"] = True
