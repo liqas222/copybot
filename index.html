@@ -1284,8 +1284,11 @@ function tickMine() {
   const liveAcct = myBase.accountValue + (upnl - myBase.baseUpnl);
   if (myCells.acct) setCell(myCells.acct, fmtUsdC(liveAcct));
   if (myCells.pnl) { myCells.pnl.classList.toggle("pos", upnl >= 0); myCells.pnl.classList.toggle("neg", upnl < 0); setCell(myCells.pnl.querySelector(".v"), fmtSignedC(upnl)); }
-  // top KPI band — all my account; live values
-  const total = liveAcct + (mySpot || 0);
+  // top KPI band — all my account; live values.
+  // Hyperliquid's perp account value already reflects your USDC collateral (it's a
+  // unified balance), so adding spot would double-count the SAME money. Use the perp
+  // account value as the total; fall back to spot only when there's no funded perp.
+  const total = liveAcct > 1 ? liveAcct : (mySpot || 0);
   kpiText("kMyTotal", fmtUsdC(total));
   kpiText("kMyTotalSub", "Perp " + fmtUsdC(liveAcct) + " · Spot " + fmtUsdC(mySpot || 0));
   kpiMoney("kMyUnreal", upnl);
