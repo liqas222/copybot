@@ -105,7 +105,9 @@ LIVE = {
     "err": "",               # last init/runtime error (shown on the dashboard)
     "addr": "",              # account address the agent trades for
     "net": "MAINNET",
-    "equity": 0.0,
+    "equity": 0.0,          # total portfolio value (perp + spot), matches the Hyperliquid UI
+    "perp_equity": 0.0,     # perp account value only (this is what's usable as perp margin)
+    "spot_equity": 0.0,
     "day_start_eq": 0.0,
     "killed": False,
     "started_ms": 0,
@@ -258,6 +260,42 @@ def get_equity(base, addr):
         except Exception:
             pass
     return eq
+
+def get_spot_equity(base, addr):
+    """USD value of SPOT balances (USDC at par + tokens at their spot mark price).
+    Best-effort: any failure returns 0.0 so it can never break the perp-equity read."""
+    try:
+        st = hl_post(base, {"type": "spotClearinghouseState", "user": addr})
+        bals = st.get("balances") or []
+        if not bals:
+            return 0.0
+        prices = {"USDC": 1.0}
+        try:
+            meta, ctxs = hl_post(base, {"type": "spotMetaAndAssetCtxs"})
+            toks = {t.get("index", i): t.get("name") for i, t in enumerate(meta.get("tokens", []))}
+            for i, u in enumerate(meta.get("universe", [])):
+                tk = u.get("tokens") or []
+                if len(tk) == 2 and tk[1] == 0:                 # pair quoted in USDC (token index 0)
+                    name = toks.get(tk[0]); px = float((ctxs[i] or {}).get("markPx") or 0)
+                    if name and px > 0:
+                        prices[name] = px
+        except Exception:
+            pass
+        total = 0.0
+        for b in bals:
+            coin = b.get("coin", ""); amt = float(b.get("total") or 0)
+            if amt:
+                total += amt * prices.get(coin, 1.0 if coin == "USDC" else 0.0)
+        return total
+    except Exception:
+        return 0.0
+
+def get_portfolio_value(base, addr):
+    """Total account value Hyperliquid shows = perp equity + spot equity.
+    Returns (perp, spot, total)."""
+    perp = get_equity(base, addr)
+    spot = get_spot_equity(base, addr)
+    return perp, spot, perp + spot
 
 
 # ---------------- sizing / rounding ----------------
@@ -1296,6 +1334,7 @@ def live_publish():
         STATE["live"] = {
             "enabled": LIVE["enabled"], "ready": LIVE["ready"], "err": LIVE["err"],
             "net": LIVE["net"], "addr": LIVE["addr"], "equity": round(LIVE["equity"], 2),
+            "perp_equity": round(LIVE["perp_equity"], 2), "spot_equity": round(LIVE["spot_equity"], 2),
             "day_pnl": day_pnl, "killed": LIVE["killed"], "killswitch": LIVE["killswitch"], "max_lev": LIVE["max_lev"],
             "lev": live_lev(), "capital_pct": round(CAPITAL_FRACTION * 100, 1),
             "max_positions": MAX_POSITIONS, "tp_crypto_pct": round(SET["tp_crypto"] * 100, 2),
@@ -1326,16 +1365,17 @@ def run_live():
             if not was_enabled:
                 was_enabled = True; LIVE["started_ms"] = int(time.time() * 1000)
                 day = datetime.datetime.now(datetime.timezone.utc).date()
-                LIVE["day_start_eq"] = get_equity(EXEC_URL, LIVE["addr"]); LIVE["killed"] = False
+                LIVE["day_start_eq"] = get_portfolio_value(EXEC_URL, LIVE["addr"])[2]; LIVE["killed"] = False
                 live_log("🟢 Engine AKTIV auf %s · Equity $%.2f · %d× · %.0f%%/Trade · max %d Pos."
                          % (LIVE["net"], LIVE["day_start_eq"], live_lev(), CAPITAL_FRACTION * 100, MAX_POSITIONS), "on")
 
             today = datetime.datetime.now(datetime.timezone.utc).date()
             if today != day:
-                day = today; LIVE["day_start_eq"] = get_equity(EXEC_URL, LIVE["addr"]); LIVE["killed"] = False
+                day = today; LIVE["day_start_eq"] = get_portfolio_value(EXEC_URL, LIVE["addr"])[2]; LIVE["killed"] = False
                 live_log("🌅 Neuer Tag — Kill-Switch zurückgesetzt.", "info")
 
-            equity = get_equity(EXEC_URL, LIVE["addr"]); LIVE["equity"] = equity
+            perp_eq, spot_eq, equity = get_portfolio_value(EXEC_URL, LIVE["addr"])
+            LIVE["equity"] = equity; LIVE["perp_equity"] = perp_eq; LIVE["spot_equity"] = spot_eq
             if LIVE["killswitch"]:
                 if not LIVE["killed"] and LIVE["day_start_eq"] > 0 and equity <= LIVE["day_start_eq"] * (1 - DAILY_LOSS_LIMIT):
                     LIVE["killed"] = True
@@ -1399,7 +1439,7 @@ def run_live():
                 if open_total >= MAX_POSITIONS:
                     live_log("⏭️ %s übersprungen — %d/%d Slots belegt (inkl. deiner manuellen Trades)."
                              % (whale[key]["bare"], open_total, MAX_POSITIONS), "skip"); continue
-                live_open(whale[key], equity)
+                live_open(whale[key], perp_eq)   # margin must come from the perp wallet
 
             live_publish()
         except Exception as e:
