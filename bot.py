@@ -1038,7 +1038,7 @@ def smart_record(p, pnl, reason, mids, exitpx=None):
     SMART["closed"].append({"coin": p["coin"], "side": p["side"], "entry": p["entry"],
         "exit": exitpx if exitpx is not None else smart_mark(p, mids), "lev": p["lev"], "margin": round(p["margin"], 2),
         "pnl": round(pnl, 2), "roe": round(roe, 4), "peak_roe": round(p.get("peak_roe", 0.0), 4),
-        "src_name": p.get("src_name", ""), "opened_ms": p.get("opened_ms", 0),
+        "src_name": p.get("src_name", ""), "src": p.get("src", ""), "opened_ms": p.get("opened_ms", 0),
         "closed_ms": int(time.time() * 1000), "reason": reason})
     if len(SMART["closed"]) > 300:
         del SMART["closed"][:len(SMART["closed"]) - 300]
@@ -1080,9 +1080,12 @@ def smart_publish(mids):
             "src_name": p.get("src_name", ""), "opened": p.get("opened_ms", 0)})
     pos.sort(key=lambda x: -abs(x["margin"]))
     wins = sum(1 for t in SMART["closed"] if t["pnl"] > 0); tot = sum(t["pnl"] for t in SMART["closed"]); n = len(SMART["closed"])
+    sum_roe = sum((t.get("roe") or 0) for t in SMART["closed"]) * 100.0   # added-up % of every trade
+    start_ms = SMART["hist"][0][0] if SMART["hist"] else nowms             # engine start ≈ first snapshot
     STATE["smart"] = {"equity": round(eq, 2), "cash": round(SMART["cash"], 2), "start": SMART_START,
-        "pos": pos, "closed": list(reversed(SMART["closed"][-60:])),
-        "stats": {"count": n, "win_rate": round(100.0 * wins / n, 1) if n else 0.0, "realized": round(tot, 2)},
+        "pos": pos, "closed": list(reversed(SMART["closed"][-60:])), "start_ms": start_ms,
+        "stats": {"count": n, "win_rate": round(100.0 * wins / n, 1) if n else 0.0,
+                  "realized": round(tot, 2), "sum_roe": round(sum_roe, 1)},
         "top": SMART_TOP[:100], "signals": SMART_SIG[:40], "tracked": len(SMART_TOP),
         "lev": SMART_LEV, "tp_pct": round(SMART_TP * 100), "frac_pct": round(SMART_FRAC * 100),
         "history": SMART["hist"][-1500:], "pnl_all": round(eq - SMART_START, 2),
@@ -1378,10 +1381,13 @@ def live_publish():
                 pv = abs(p["szi"]) * p["mark"]
                 margin = pv / p["lev"] if p.get("lev") else 0
                 roe = (upnl / margin) if margin else 0
+                meta = LIVE["owned"].get(key) or {}
                 rows.append({"coin": p["bare"], "side": p["side"], "entry": p["entry"],
                              "mark": p["mark"], "lev": p["lev"], "margin": round(margin, 2),
                              "upnl": round(upnl, 2), "roe": round(roe, 4),
-                             "owned": key in LIVE["owned"]})
+                             "owned": key in LIVE["owned"],
+                             "src": WHALE if key in LIVE["owned"] else "",
+                             "opened_ms": meta.get("opened_ms", 0)})
         except Exception as e:
             LIVE["err"] = "Positions-Read: %s" % e
     rows.sort(key=lambda r: -r["margin"])
@@ -1389,7 +1395,7 @@ def live_publish():
     with LOCK:
         STATE["live"] = {
             "enabled": LIVE["enabled"], "ready": LIVE["ready"], "err": LIVE["err"],
-            "net": LIVE["net"], "addr": LIVE["addr"], "equity": round(LIVE["equity"], 2),
+            "net": LIVE["net"], "addr": LIVE["addr"], "whale": WHALE, "equity": round(LIVE["equity"], 2),
             "perp_equity": round(LIVE["perp_equity"], 2), "spot_equity": round(LIVE["spot_equity"], 2),
             "day_pnl": day_pnl, "killed": LIVE["killed"], "killswitch": LIVE["killswitch"], "max_lev": LIVE["max_lev"],
             "lev": live_lev(), "capital_pct": round(CAPITAL_FRACTION * 100, 1),

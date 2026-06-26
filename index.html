@@ -580,6 +580,7 @@
                 <div class="statrow"><span>Offene Positionen (gesamt)</span><span class="num" id="liveOwned">—</span></div>
                 <div class="statrow"><span>Kill-Switch</span><span class="num" id="liveKill">—</span></div>
                 <div class="statrow"><span>Account</span><span class="num" id="liveAddr">—</span></div>
+                <div class="statrow"><span>Kopiert Wallet</span><span class="num" id="liveWhale">—</span></div>
                 <div class="liveerr" id="liveErr" style="display:none"></div>
                 <button class="btn danger" id="livePanic" style="width:100%;margin-top:12px" onclick="livePanic()">🧹 PANIC — Engine aus &amp; alle Bot-Positionen schließen</button>
               </div>
@@ -1639,6 +1640,8 @@ function renderLive(lv) {
     ? '<span class="neg">⚠️ AUS — keine automatische Verlustbremse</span>'
     : "Stoppt neue Trades bei −25 % Tagesverlust.";
   setT("liveAddr", lv.addr ? smShort(lv.addr) : "—");
+  const wh = document.getElementById("liveWhale");
+  if (wh) wh.innerHTML = lv.whale ? `<a class="waddr" href="https://hypurrscan.io/address/${esc(lv.whale)}" target="_blank" rel="noopener">${esc(smShort(lv.whale))}</a>` : "—";
   setT("liveCap", lv.capital_pct != null ? lv.capital_pct + "% Equity" : "—");
   setT("liveMaxPos", lv.max_positions != null ? lv.max_positions : "—");
   setT("liveTpC", lv.tp_crypto_pct != null ? "+" + lv.tp_crypto_pct + "%" : "—");
@@ -1654,13 +1657,16 @@ function renderLive(lv) {
   if (pp) {
     const rows = (lv.pos || []).map((p) => {
       const up = (p.upnl || 0) >= 0;
+      const srcCell = p.src ? `<a class="waddr" href="https://hypurrscan.io/address/${esc(p.src)}" target="_blank" rel="noopener">${esc(smShort(p.src))}</a>` : "<span style='color:var(--muted)'>—</span>";
+      const opened = p.opened_ms ? fmtDateTime(p.opened_ms) : "—";
       return `<tr><td><span class="side ${p.side === "LONG" ? "long" : "short"}">${p.side}</span> ${esc(p.coin)} ${p.owned ? '<span class="livetag">BOT</span>' : ""}</td>
+        <td class="num">${srcCell}</td><td class="num">${opened}</td>
         <td class="num">${fmtP(p.entry)}</td><td class="num">${fmtP(p.mark)}</td><td class="num">${(p.lev || 0)}×</td>
         <td class="num">${fmtUsdC(p.margin || 0)}</td>
         <td class="num ${up ? "pos" : "neg"}">${fmtSignedC(p.upnl)}</td><td class="num ${up ? "pos" : "neg"}">${((p.roe || 0) * 100).toFixed(1)}%</td></tr>`;
     }).join("");
     pp.innerHTML = `<header class="phead"><span class="wlabel">Live Positionen</span><span class="meta">${(lv.pos || []).length}</span></header>
-      <div class="pbody">${rows ? `<div class="tablewrap"><table><thead><tr><th>Position</th><th>Entry</th><th>Mark</th><th>Lev</th><th>Margin</th><th>uPnL</th><th>ROE</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="state small">Keine offenen Live-Positionen.</div>`}</div>`;
+      <div class="pbody">${rows ? `<div class="tablewrap"><table><thead><tr><th>Position</th><th>Quelle</th><th>Eröffnet</th><th>Entry</th><th>Mark</th><th>Lev</th><th>Margin</th><th>uPnL</th><th>ROE</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="state small">Keine offenen Live-Positionen.</div>`}</div>`;
   }
   const lg = document.getElementById("liveLog");
   if (lg) {
@@ -1928,10 +1934,23 @@ function renderSmartAux(sm) {
   if (cl) {
     const rows = (sm.closed || []).map((t) => {
       const w = (t.pnl || 0) >= 0;
-      return `<div class="logrow"><span class="logt">${esc(t.side)} ${esc(t.coin)}</span> <span class="num ${w ? "pos" : "neg"}">${fmtSignedC(t.pnl)}</span> · ${((t.roe || 0) * 100).toFixed(0)}% · <span style="color:var(--muted)">${esc(t.reason || "")}</span></div>`;
+      const src = t.src
+        ? `<a class="waddr" href="https://hypurrscan.io/address/${esc(t.src)}" target="_blank" rel="noopener">${esc(t.src_name || smShort(t.src))}</a>`
+        : `<span style="color:var(--muted)">${esc(t.src_name || "")}</span>`;
+      return `<div class="logrow"><span class="logt">${esc(t.side)} ${esc(t.coin)}</span> <span class="num ${w ? "pos" : "neg"}">${fmtSignedC(t.pnl)}</span> · ${((t.roe || 0) * 100).toFixed(0)}% · von ${src} <span style="color:var(--muted)">· ${esc(t.reason || "")}</span></div>`;
     }).join("") || `<div class="state small">Noch keine geschlossenen Trades.</div>`;
     const st = sm.stats || {};
-    cl.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span><span class="meta">${st.count ? st.count + " · " + fmtSigned(st.realized) : ""}</span></header><div class="pbody"><div class="botlog tall">${rows}</div></div>`;
+    const sumRoe = st.sum_roe || 0;
+    const metaTxt = st.count
+      ? `${st.count} · <span class="${st.realized >= 0 ? "pos" : "neg"}">${fmtSigned(st.realized)}</span> · <span class="${sumRoe >= 0 ? "pos" : "neg"}">${sumRoe >= 0 ? "+" : ""}${sumRoe.toFixed(0)}%</span>`
+      : "";
+    let sinceTxt = "";
+    if (sm.start_ms) {
+      const days = Math.floor((Date.now() - sm.start_ms) / 86400000);
+      const d = days <= 0 ? "heute" : days === 1 ? "1 Tag" : days + " Tagen";
+      sinceTxt = `<div class="setnote" style="margin:0 0 10px">⏱ Läuft seit ${d} · gestartet ${fmtDate(sm.start_ms)}</div>`;
+    }
+    cl.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span><span class="meta">${metaTxt}</span></header><div class="pbody">${sinceTxt}<div class="botlog tall">${rows}</div></div>`;
   }
 }
 // top KPI band — all about MY account. Live values (total, unrealized, positions)
