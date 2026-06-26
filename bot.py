@@ -87,6 +87,34 @@ STATE = {"running": False, "paused": False, "killed": False, "net": "",
 LOCK = threading.Lock()
 EX   = {"ex": None}
 
+# ============================ LIVE (real money) ============================
+# A separate, opt-in engine that mirrors the SAME whale with the SAME rules as
+# the paper copy-bot, but places REAL orders on Hyperliquid MAINNET. It is OFF
+# by default and only ever trades when ALL of these hold:
+#   * LIVE["enabled"] is True (master switch, toggled from the dashboard)
+#   * a trade-only agent key is present in config.json
+#   * the Hyperliquid SDK (eth_account + hyperliquid) imports successfully
+# It only ever CLOSES positions it opened itself (tracked in LIVE["owned"]),
+# never the user's other/manual positions. Settings live in config.json (gitignored).
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+LIVE = {
+    "enabled": False,        # master on/off (persisted)
+    "max_lev": FIXED_LEV,    # hard leverage cap for live trades (persisted, settable)
+    "ready": False,          # key loaded + SDK importable + Exchange built
+    "err": "",               # last init/runtime error (shown on the dashboard)
+    "addr": "",              # account address the agent trades for
+    "net": "MAINNET",
+    "equity": 0.0,
+    "day_start_eq": 0.0,
+    "killed": False,
+    "started_ms": 0,
+    "ex": None,              # hyperliquid Exchange instance
+    "owned": set(),          # keys (dex,bare) THIS engine opened -> only these are managed/closed
+    "pos": [],               # snapshot of current account positions (for the dashboard)
+    "closed": [],            # closed-trade log (for the dashboard)
+    "log": [],               # engine event log (for the dashboard)
+}
+
 # virtual book for paper mode
 PAPER = {"cash": PAPER_START, "pos": {}, "hist": [], "closed": []}   # pos: key(tuple) -> dict; hist: [[t_ms, equity], ...]; closed: [trade dicts]
 HIST_EVERY = 60       # seconds between equity snapshots for the chart
@@ -435,6 +463,7 @@ class Handler(BaseHTTPRequestHandler):
                 st["daily_loss_pct"] = round(DAILY_LOSS_LIMIT * 100, 1)
                 st["wallets"] = wallets_payload()
                 st["smart"] = STATE.get("smart", {})
+                st["live"] = STATE.get("live", {})
                 st["log"] = STATE["log"][-60:]
             return self._send(200, json.dumps(st))
         return self._send(404, "not found", "text/plain")
@@ -507,6 +536,35 @@ class Handler(BaseHTTPRequestHandler):
             save_secrets()
             tg("➕ Now tracking %s (%s)" % (label, addr[:6] + "…" + addr[-4:]))
             return self._send(200, json.dumps({"ok": True, "wallets": wallets_payload()}))
+        elif path == "/live_toggle":
+            ln = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(ln).decode("utf-8", "ignore") if ln > 0 else ""
+            body = urllib.parse.parse_qs(raw)
+            want = (body.get("on", [""])[0] or "").strip() == "1"
+            if want:
+                ok, msg = live_init()
+                if not ok:
+                    return self._send(200, json.dumps({"ok": False, "error": msg}))
+                LIVE["enabled"] = True
+            else:
+                LIVE["enabled"] = False
+            live_save_config()
+            return self._send(200, json.dumps({"ok": True, "enabled": LIVE["enabled"], "ready": LIVE["ready"], "err": LIVE["err"]}))
+        elif path == "/live_settings":
+            ln = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(ln).decode("utf-8", "ignore") if ln > 0 else ""
+            body = urllib.parse.parse_qs(raw)
+            try:
+                ml = int(float(body.get("max_lev", [""])[0]))
+                LIVE["max_lev"] = max(1, min(ml, 40))
+            except Exception:
+                pass
+            live_save_config()
+            tg("⚙️ LIVE Leverage-Cap = %d× (gilt für neue Live-Trades)" % LIVE["max_lev"])
+            return self._send(200, json.dumps({"ok": True, "max_lev": LIVE["max_lev"], "lev": live_lev()}))
+        elif path == "/live_flatten":
+            threading.Thread(target=live_flatten, daemon=True).start()
+            return self._send(200, json.dumps({"ok": True}))
         elif path == "/delwallet":
             ln = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(ln).decode("utf-8", "ignore") if ln > 0 else ""
@@ -1061,6 +1119,280 @@ def run_smart():
 
 
 # ============================ PAPER LOOP ============================
+# ============================ LIVE ENGINE (real money) ============================
+def live_log(msg, kind="info"):
+    """Append to the live engine log (shown on the dashboard) and mirror to Telegram."""
+    stamp = now_hms()[:5]
+    with LOCK:
+        LIVE["log"].append({"t": stamp, "text": msg, "kind": kind})
+        if len(LIVE["log"]) > 200:
+            del LIVE["log"][:len(LIVE["log"]) - 200]
+    tg("🔴 LIVE " + msg)
+
+def live_load_config():
+    """Read config.json: enabled flag + leverage cap (agent_key/account_address stay
+    on disk only and are loaded in live_init). Never writes the key back out elsewhere."""
+    if not os.path.exists(CONFIG_FILE):
+        return
+    try:
+        d = json.load(open(CONFIG_FILE))
+        LIVE["enabled"] = bool(d.get("live_enabled", False))
+        ml = d.get("live_max_lev")
+        if ml:
+            LIVE["max_lev"] = max(1, min(int(ml), 40))
+    except Exception as e:
+        print("live_load_config error:", e)
+
+def live_save_config():
+    """Atomic write of config.json preserving agent_key/account_address already on disk."""
+    try:
+        d = {}
+        if os.path.exists(CONFIG_FILE):
+            try:    d = json.load(open(CONFIG_FILE))
+            except Exception: d = {}
+        d["live_enabled"] = bool(LIVE["enabled"])
+        d["live_max_lev"] = int(LIVE["max_lev"])
+        tmp = CONFIG_FILE + ".tmp"
+        json.dump(d, open(tmp, "w"))
+        os.replace(tmp, CONFIG_FILE)
+    except Exception as e:
+        print("live_save_config error:", e)
+
+def live_init():
+    """Lazily import the SDK and build the Exchange from the agent key in config.json.
+    Returns (ok, message). Safe to call repeatedly; only builds once."""
+    global EXEC_URL
+    if LIVE["ready"] and LIVE["ex"]:
+        return True, "ready"
+    if not os.path.exists(CONFIG_FILE):
+        LIVE["err"] = "config.json fehlt (Agent-Key eintragen)"; return False, LIVE["err"]
+    try:
+        cfg = json.load(open(CONFIG_FILE))
+    except Exception as e:
+        LIVE["err"] = "config.json unlesbar: %s" % e; return False, LIVE["err"]
+    key = (cfg.get("agent_key") or "").strip()
+    addr = (cfg.get("account_address") or "").strip()
+    if not key or not addr:
+        LIVE["err"] = "agent_key / account_address fehlen in config.json"; return False, LIVE["err"]
+    try:
+        from eth_account import Account
+        from hyperliquid.exchange import Exchange
+        from hyperliquid.utils import constants
+    except Exception as e:
+        LIVE["err"] = "SDK fehlt — 'pip install hyperliquid-python-sdk' auf dem Server (%s)" % e
+        return False, LIVE["err"]
+    try:
+        EXEC_URL = constants.MAINNET_API_URL
+        ex = Exchange(Account.from_key(key), EXEC_URL, account_address=addr)
+        LIVE["ex"] = ex; LIVE["addr"] = addr; LIVE["ready"] = True; LIVE["err"] = ""
+        return True, "ready"
+    except Exception as e:
+        LIVE["err"] = "Exchange-Init fehlgeschlagen: %s" % e; return False, LIVE["err"]
+
+def live_lev():
+    return max(1, min(FIXED_LEV, int(LIVE["max_lev"])))
+
+def live_open(w, equity):
+    """Open ONE real copy of a whale position. Mirrors open_copy but leverage-capped
+    and logged into the live engine. Records the key as engine-owned."""
+    ex = LIVE["ex"]
+    if not ex:
+        return
+    lev = live_lev()
+    is_cross = (w["mode"] == "cross")
+    is_buy = w["szi"] > 0
+    coin, mark = w["coin"], (w["mark"] or 0)
+    if mark <= 0:
+        live_log("⏭️ %s übersprungen — kein Preis" % w["bare"], "skip"); return
+    margin = equity * CAPITAL_FRACTION
+    sz = round_sz(EXEC_URL, w["bare"], (margin * lev) / mark)
+    if sz <= 0:
+        live_log("⏭️ %s übersprungen — Größe 0 (zu wenig Kapital?)" % w["bare"], "skip"); return
+    try:
+        ex.update_leverage(lev, coin, is_cross)
+        ex.market_open(coin, is_buy, sz)
+        time.sleep(1.0)
+        mine = get_positions(EXEC_URL, ex.account_address).get(w["key"])
+        entry = mine["entry"] if mine else mark
+        tp_roe = SET["tp_stock"] if w["dex"] else SET["tp_crypto"]
+        move = tp_roe / lev
+        tp = round_px(entry * (1 + move) if is_buy else entry * (1 - move))
+        try:
+            ex.order(coin, (not is_buy), sz, tp,
+                     {"trigger": {"triggerPx": tp, "isMarket": True, "tpsl": "tp"}}, reduce_only=True)
+        except Exception as te:
+            live_log("⚠️ TP-Order %s fehlgeschlagen: %s" % (w["bare"], te), "warn")
+        with LOCK:
+            LIVE["owned"].add(w["key"])
+        live_log("✅ COPIED %s %s · size %.4f @ ~$%.4f · %d× %s · TP +%.0f%% ROE @ $%s"
+                 % (w["bare"], w["side"], sz, entry, lev,
+                    "Cross" if is_cross else "Isolated", tp_roe * 100, tp), "open")
+    except Exception as e:
+        live_log("❌ Fehler beim Öffnen %s: %s" % (w["bare"], e), "err")
+
+def live_close(w, reason):
+    ex = LIVE["ex"]
+    if not ex:
+        return
+    try:
+        ex.market_close(w["coin"])
+        with LOCK:
+            LIVE["owned"].discard(w["key"])
+        live_log("🔻 CLOSED %s (%s)" % (w["bare"], reason), "close")
+    except Exception as e:
+        live_log("❌ Fehler beim Schließen %s: %s" % (w["bare"], e), "err")
+
+def live_flatten():
+    """Panic: close every engine-owned position immediately and disable the engine."""
+    ex = LIVE["ex"]
+    LIVE["enabled"] = False; live_save_config()
+    live_log("🧹 PANIC — Engine AUS, schließe alle vom Bot eröffneten Positionen…", "warn")
+    if not ex:
+        return
+    try:
+        pos = get_positions(EXEC_URL, ex.account_address)
+    except Exception as e:
+        live_log("❌ Flatten-Read fehlgeschlagen: %s" % e, "err"); return
+    for key in list(LIVE["owned"]):
+        p = pos.get(key)
+        if not p:
+            with LOCK: LIVE["owned"].discard(key)
+            continue
+        try:
+            ex.market_close(p["coin"])
+            with LOCK: LIVE["owned"].discard(key)
+            live_log("🔻 CLOSED %s (panic)" % p["bare"], "close")
+        except Exception as e:
+            live_log("❌ Flatten %s: %s" % (p["bare"], e), "err")
+
+def live_publish():
+    """Build the STATE['live'] payload the dashboard renders."""
+    ex = LIVE["ex"]; rows = []
+    if ex and LIVE["ready"]:
+        try:
+            allpos = get_positions(EXEC_URL, ex.account_address)
+            for key, p in allpos.items():
+                upnl = p["szi"] * (p["mark"] - p["entry"])
+                pv = abs(p["szi"]) * p["mark"]
+                margin = pv / p["lev"] if p.get("lev") else 0
+                roe = (upnl / margin) if margin else 0
+                rows.append({"coin": p["bare"], "side": p["side"], "entry": p["entry"],
+                             "mark": p["mark"], "lev": p["lev"], "margin": round(margin, 2),
+                             "upnl": round(upnl, 2), "roe": round(roe, 4),
+                             "owned": key in LIVE["owned"]})
+        except Exception as e:
+            LIVE["err"] = "Positions-Read: %s" % e
+    rows.sort(key=lambda r: -r["margin"])
+    day_pnl = round(LIVE["equity"] - LIVE["day_start_eq"], 2) if LIVE["day_start_eq"] else 0.0
+    with LOCK:
+        STATE["live"] = {
+            "enabled": LIVE["enabled"], "ready": LIVE["ready"], "err": LIVE["err"],
+            "net": LIVE["net"], "addr": LIVE["addr"], "equity": round(LIVE["equity"], 2),
+            "day_pnl": day_pnl, "killed": LIVE["killed"], "max_lev": LIVE["max_lev"],
+            "lev": live_lev(), "capital_pct": round(CAPITAL_FRACTION * 100, 1),
+            "max_positions": MAX_POSITIONS, "tp_crypto_pct": round(SET["tp_crypto"] * 100, 2),
+            "tp_stock_pct": round(SET["tp_stock"] * 100, 2), "daily_loss_pct": round(DAILY_LOSS_LIMIT * 100, 1),
+            "owned": len(LIVE["owned"]), "pos": rows,
+            "closed": LIVE["closed"][-40:][::-1], "log": LIVE["log"][-50:][::-1],
+        }
+
+def run_live():
+    """Daemon loop. Idle while disabled; when enabled, mirror the whale with REAL
+    orders using the same open/close confirmation as the paper engine."""
+    live_load_config()
+    known = set(); based = set(); miss = {}; openseen = {}
+    announced = False; was_enabled = False; day = None; last_pub = 0
+    while True:
+        try:
+            if not LIVE["enabled"]:
+                if was_enabled:
+                    live_log("⏸ Engine deaktiviert — keine neuen Trades (offene Positionen laufen weiter).", "warn")
+                    was_enabled = False
+                LIVE["ready"] = LIVE["ready"] and bool(LIVE["ex"])
+                live_publish(); time.sleep(2); continue
+            if not LIVE["ready"]:
+                ok, _ = live_init()
+                if not ok:
+                    live_publish(); time.sleep(5); continue
+                announced = False; known = set(); based = set(); miss = {}; openseen = {}
+            if not was_enabled:
+                was_enabled = True; LIVE["started_ms"] = int(time.time() * 1000)
+                day = datetime.datetime.now(datetime.timezone.utc).date()
+                LIVE["day_start_eq"] = get_equity(EXEC_URL, LIVE["addr"]); LIVE["killed"] = False
+                live_log("🟢 Engine AKTIV auf %s · Equity $%.2f · %d× · %.0f%%/Trade · max %d Pos."
+                         % (LIVE["net"], LIVE["day_start_eq"], live_lev(), CAPITAL_FRACTION * 100, MAX_POSITIONS), "on")
+
+            today = datetime.datetime.now(datetime.timezone.utc).date()
+            if today != day:
+                day = today; LIVE["day_start_eq"] = get_equity(EXEC_URL, LIVE["addr"]); LIVE["killed"] = False
+                live_log("🌅 Neuer Tag — Kill-Switch zurückgesetzt.", "info")
+
+            equity = get_equity(EXEC_URL, LIVE["addr"]); LIVE["equity"] = equity
+            if not LIVE["killed"] and LIVE["day_start_eq"] > 0 and equity <= LIVE["day_start_eq"] * (1 - DAILY_LOSS_LIMIT):
+                LIVE["killed"] = True
+                live_log("🛑 KILL-SWITCH: −%.0f%% heute. Keine neuen Trades." % (DAILY_LOSS_LIMIT * 100), "kill")
+
+            whale, okdex = get_positions_ex(SOURCE_URL, WHALE)
+            if COIN_WHITELIST is not None:
+                whale = {k: v for k, v in whale.items() if v["bare"] in COIN_WHITELIST}
+            livepos = get_positions(EXEC_URL, LIVE["addr"])
+
+            # establish baseline: existing whale positions are NOT copied
+            new_dex = okdex - based
+            if new_dex:
+                for k in whale:
+                    if k[0] in new_dex:
+                        known.add(k)
+                based |= new_dex
+            if not announced:
+                announced = True
+                live_log("👀 Beobachte ab jetzt — bestehende Whale-Positionen werden NICHT kopiert. Nur NEUE, %d× bestätigt." % OPEN_CONFIRM, "info")
+                live_publish(); time.sleep(POLL_SECONDS); continue
+
+            # reconcile: an engine-owned position that vanished closed via TP or by hand
+            for key in list(LIVE["owned"]):
+                if key not in livepos:
+                    with LOCK: LIVE["owned"].discard(key)
+                    live_log("🎯 %s geschlossen (TP/extern)." % key[1], "close")
+
+            # confirmed whale-exit -> close OUR copy (only engine-owned keys)
+            for key in list(known):
+                if key in whale:
+                    miss[key] = 0
+                elif key[0] in okdex:
+                    miss[key] = miss.get(key, 0) + 1
+                    if miss[key] >= CLOSE_CONFIRM:
+                        known.discard(key); miss.pop(key, None)
+                        if key in LIVE["owned"] and key in livepos:
+                            live_close(livepos[key], "whale exit")
+
+            # confirmed NEW opens -> copy with real orders
+            cand = set(k for k in whale if k[0] in okdex and k not in known)
+            for k in list(openseen):
+                if k not in cand:
+                    openseen.pop(k, None)
+            for key in cand:
+                openseen[key] = openseen.get(key, 0) + 1
+            for key in list(cand):
+                if openseen.get(key, 0) < OPEN_CONFIRM:
+                    continue
+                openseen.pop(key, None); known.add(key)
+                if key in LIVE["owned"]:
+                    continue
+                if LIVE["killed"]:
+                    live_log("⏭️ %s übersprungen — Kill-Switch." % whale[key]["bare"], "skip"); continue
+                if len(LIVE["owned"]) >= MAX_POSITIONS:
+                    live_log("⏭️ %s übersprungen — %d Slots voll." % (whale[key]["bare"], MAX_POSITIONS), "skip"); continue
+                live_open(whale[key], equity)
+
+            live_publish()
+        except Exception as e:
+            LIVE["err"] = str(e); print("live loop error:", e)
+            try: live_publish()
+            except Exception: pass
+        time.sleep(POLL_SECONDS)
+
+
 def run_paper():
     STATE["net"] = "PAPER"; STATE["running"] = True
     load_secrets()
@@ -1071,6 +1403,7 @@ def run_paper():
     start_server()
     threading.Thread(target=start_tunnel, daemon=True).start()
     threading.Thread(target=run_smart, daemon=True).start()   # Smart-Money top-100 tracker (separate paper book)
+    threading.Thread(target=run_live, daemon=True).start()    # LIVE real-money engine (OFF until enabled from dashboard)
     tg("🤖 Copy-Bot in PAPER mode (simulated, no real money) · start $%.0f" % PAPER_START)
     print("\n>>> Dashboard:  http://<server-ip>/   (token: %s)\n" % DASH_TOKEN)
 
