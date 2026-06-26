@@ -295,6 +295,9 @@
   .radartext span { color: var(--muted); font-size: 12px; }
   @media (prefers-reduced-motion: reduce) { .radar .ring, .radar .dot.beat { animation: none; } .radar .ring:first-child { opacity: .4; } }
   .logrow { font-size: 11.5px; padding: 3px 0; }
+  .botlog.smbig { max-height: 460px; }
+  .botlog.smbig .logrow { font-size: 14px; padding: 7px 0; line-height: 1.5; }
+  .botlog.smbig .srcfull { font-size: 12.5px; }
   .logt { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
 
   .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 20px; }
@@ -560,8 +563,10 @@
             </div>
           </div>
           <section class="panel" id="smartPos"><header class="phead"><span class="wlabel">Open Positions</span></header><div class="state small">…</div></section>
-          <section class="panel" id="smartTop"><header class="phead"><span class="wlabel">Tracked Top Traders</span></header><div class="state small">…</div></section>
-          <section class="panel" id="smartClosed"><header class="phead"><span class="wlabel">Closed Trades</span></header><div class="state small">…</div></section>
+          <div class="vgrid">
+            <section class="panel" id="smartTop"><header class="phead"><span class="wlabel">Tracked Top Traders</span></header><div class="state small">…</div></section>
+            <section class="panel" id="smartClosed"><header class="phead"><span class="wlabel">Closed Trades</span></header><div class="state small">…</div></section>
+          </div>
         </section>
         <section class="view" id="view-live">
           <div class="liverisk">⚠️ <b>Echtes Geld.</b> Diese Engine platziert echte Orders auf Hyperliquid Mainnet mit deinem Kapital — gleiche Regeln wie der Copy-Bot (1/5 Equity pro Trade · max 5 Positionen · TP pro Assetklasse · −25 % Tages-Kill-Switch · kein Stop-Loss). Sie ist standardmäßig <b>AUS</b> und tradet nur, solange du sie hier scharf schaltest.</div>
@@ -1936,7 +1941,7 @@ function renderSmartAux(sm) {
       const src = t.src
         ? `<a class="waddr srcfull" href="https://hypurrscan.io/address/${esc(t.src)}" target="_blank" rel="noopener">${t.src_name ? esc(t.src_name) + " · " : ""}${esc(t.src)}</a>`
         : `<span style="color:var(--muted)">${esc(t.src_name || "")}</span>`;
-      return `<div class="logrow"><span class="logt">${esc(t.side)} ${esc(t.coin)}</span> <span class="num ${w ? "pos" : "neg"}">${fmtSignedC(t.pnl)}</span> · ${((t.roe || 0) * 100).toFixed(0)}% · <span style="color:var(--muted)">${esc(t.reason || "")}</span> · von ${src}</div>`;
+      return `<div class="logrow"><span class="logt">${esc(t.side)} ${esc(t.coin)}</span> <span class="num ${w ? "pos" : "neg"}">${fmtSignedC(t.pnl)}</span> · ${((t.roe || 0) * 100).toFixed(0)}% · <span style="color:var(--muted)">${esc(t.reason || "")}</span><br>von ${src}</div>`;
     }).join("") || `<div class="state small">Noch keine geschlossenen Trades.</div>`;
     const st = sm.stats || {};
     const sumRoe = st.sum_roe || 0;
@@ -1949,7 +1954,7 @@ function renderSmartAux(sm) {
       const d = days <= 0 ? "heute" : days === 1 ? "1 Tag" : days + " Tagen";
       sinceTxt = `<div class="setnote" style="margin:0 0 10px">⏱ Läuft seit ${d} · gestartet ${fmtDate(sm.start_ms)}</div>`;
     }
-    cl.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span><span class="meta">${metaTxt}</span></header><div class="pbody">${sinceTxt}<div class="botlog tall">${rows}</div></div>`;
+    cl.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span><span class="meta">${metaTxt}</span></header><div class="pbody">${sinceTxt}<div class="botlog tall smbig">${rows}</div></div>`;
   }
 }
 // top KPI band — all about MY account. Live values (total, unrealized, positions)
