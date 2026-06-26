@@ -1202,6 +1202,15 @@ def live_log(msg, kind="info"):
             del LIVE["log"][:len(LIVE["log"]) - 200]
     tg("🔴 LIVE " + msg)
 
+def live_note(msg, kind="info"):
+    """Dashboard-only log entry (no Telegram) — for routine/noisy notes like skips."""
+    stamp = now_hms()[:5]
+    with LOCK:
+        LIVE["log"].append({"t": stamp, "text": msg, "kind": kind})
+        if len(LIVE["log"]) > 200:
+            del LIVE["log"][:len(LIVE["log"]) - 200]
+    print("LIVE note:", msg)
+
 def live_load_config():
     """Read config.json: enabled flag + leverage cap (agent_key/account_address stay
     on disk only and are loaded in live_init). Never writes the key back out elsewhere."""
@@ -1437,7 +1446,7 @@ def run_live():
     orders using the same open/close confirmation as the paper engine."""
     live_load_config()
     live_load_state()   # restore engine-owned positions + closed log across restarts
-    known = set(); based = set(); miss = {}; openseen = {}
+    known = set(); based = set(); miss = {}; openseen = {}; close_miss = {}
     announced = False; was_enabled = False; day = None; last_pub = 0
     while True:
         try:
@@ -1478,7 +1487,7 @@ def run_live():
             whale, okdex = get_positions_ex(SOURCE_URL, WHALE)
             if COIN_WHITELIST is not None:
                 whale = {k: v for k, v in whale.items() if v["bare"] in COIN_WHITELIST}
-            livepos = get_positions(EXEC_URL, LIVE["addr"])
+            livepos, okexec = get_positions_ex(EXEC_URL, LIVE["addr"])   # okexec = our dexes read OK
 
             # establish baseline: existing whale positions are NOT copied
             new_dex = okdex - based
@@ -1492,11 +1501,19 @@ def run_live():
                 live_log("👀 Beobachte ab jetzt — bestehende Whale-Positionen werden NICHT kopiert. Nur NEUE, über %d Polls bestätigt (Anti-Flicker, KEIN Hebel)." % OPEN_CONFIRM, "info")
                 live_publish(); time.sleep(POLL_SECONDS); continue
 
-            # reconcile: an engine-owned position that vanished closed via TP (or by hand)
-            # -> report realized PnL + % (the take-profit fills on the exchange itself).
+            # reconcile: an engine-owned position closed via TP (or by hand). Only act when
+            # the position's OWN dex was actually read this poll AND it's been absent for
+            # CLOSE_CONFIRM consecutive polls — otherwise a propagation delay or a single
+            # failed read would falsely report a close (e.g. open + instant "take-profit").
             for key in list(LIVE["owned"]):
-                if key not in livepos:
-                    live_record_close(key, "take-profit")
+                if key in livepos:
+                    close_miss[key] = 0
+                elif key[0] in okexec:
+                    close_miss[key] = close_miss.get(key, 0) + 1
+                    if close_miss[key] >= CLOSE_CONFIRM:
+                        close_miss.pop(key, None)
+                        live_record_close(key, "take-profit")
+                # else: that dex wasn't read this poll -> unknown, leave the position alone
 
             # whale-exit: we do NOT close our copy when the whale closes — our positions
             # are managed ONLY by their own take-profit / liquidation. We just stop tracking
@@ -1509,8 +1526,15 @@ def run_live():
                     if miss[key] >= CLOSE_CONFIRM:
                         known.discard(key); miss.pop(key, None)
 
-            # confirmed NEW opens -> copy with real orders
-            cand = set(k for k in whale if k[0] in okdex and k not in known)
+            # Builder-dex (HIP-3) perps like stock perps on 'xyz' can't be placed via the
+            # standard SDK call -> skip them cleanly (no error spam) instead of crashing.
+            for k in list(whale):
+                if k[0] != "" and k[0] in okdex and k not in known:
+                    known.add(k)
+                    live_note("⏭️ %s (Builder-Dex '%s') — Stock-/Builder-Perps werden live nicht gehandelt" % (k[1], k[0]), "skip")
+
+            # confirmed NEW opens -> copy with real orders (MAIN perp dex only)
+            cand = set(k for k in whale if k[0] == "" and "" in okdex and k not in known)
             for k in list(openseen):
                 if k not in cand:
                     openseen.pop(k, None)
