@@ -586,6 +586,7 @@
                   <label class="switch"><input type="checkbox" id="liveSwitch" onchange="liveToggle(this.checked)"><span class="slider"></span></label>
                 </div>
                 <div class="hero"><span class="herolabel">Account Value (live)</span><span class="heroval num" id="liveEquity">—</span></div>
+                <div class="setnote" id="liveEquitySub" style="margin-top:-4px"></div>
                 <div class="statrow"><span>Tages-PnL</span><span class="num" id="liveDayPnl">—</span></div>
                 <div class="statrow"><span>Offene Positionen (gesamt)</span><span class="num" id="liveOwned">—</span></div>
                 <div class="statrow"><span>Kill-Switch</span><span class="num" id="liveKill">—</span></div>
@@ -1637,6 +1638,7 @@ function renderLive(lv) {
   const setT = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
   const money = (id, v) => { const e = document.getElementById(id); if (!e) return; if (v == null) { e.textContent = "—"; return; } e.textContent = fmtSignedC(v); e.classList.toggle("pos", v >= 0); e.classList.toggle("neg", v < 0); };
   setT("liveEquity", lv.equity != null ? fmtUsdC(lv.equity) : "—");
+  setT("liveEquitySub", (lv.perp_equity != null || lv.spot_equity != null) ? ("Perp " + fmtUsdC(lv.perp_equity || 0) + " · Spot " + fmtUsdC(lv.spot_equity || 0)) : "");
   money("liveDayPnl", lv.equity != null ? (lv.day_pnl || 0) : null);
   setT("liveOwned", (lv.open_total != null ? lv.open_total : 0) + " / " + (lv.max_positions || 5) + (lv.owned != null ? " · " + lv.owned + " vom Bot" : ""));
   setT("liveKill", lv.killswitch === false ? "⚪ aus" : (lv.killed ? "🛑 ausgelöst" : "ok"));
