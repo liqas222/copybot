@@ -258,6 +258,25 @@
   .setgrp { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px 12px; background: rgba(255,255,255,.015); }
   .setgrphd { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 2px 0 8px; }
   .setnote { margin-top: 9px; font-size: 11px; color: var(--muted); line-height: 1.5; }
+  /* live trading (real money) */
+  .liverisk { border: 1px solid #5a2630; background: linear-gradient(180deg, rgba(246,70,93,.10), rgba(246,70,93,.03)); color: #ffd9d4;
+    border-radius: 12px; padding: 12px 16px; margin-bottom: 16px; font-size: 12.5px; line-height: 1.55; }
+  .liverisk b { color: #ff8a7e; }
+  .livemaster { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 14px; margin-bottom: 14px;
+    border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.02); }
+  .livemlabel { font-family: "Chakra Petch", var(--ui); font-weight: 700; font-size: 16px; }
+  .livetag { font-family: var(--mono); font-size: 9px; letter-spacing: .5px; color: #ff8a7e; border: 1px solid #5a2630; border-radius: 5px; padding: 1px 5px; vertical-align: middle; }
+  .liveerr { margin-top: 12px; padding: 9px 12px; border-radius: 9px; border: 1px solid #5a2630; background: rgba(246,70,93,.08);
+    color: #ff8a7e; font-size: 12px; font-family: var(--mono); word-break: break-word; }
+  .setlbl { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  .setinline { display: flex; gap: 8px; align-items: center; }
+  /* iOS-style toggle */
+  .switch { position: relative; display: inline-block; width: 58px; height: 32px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch .slider { position: absolute; inset: 0; cursor: pointer; background: #2a2336; border: 1px solid var(--line); border-radius: 999px; transition: .2s; }
+  .switch .slider::before { content: ""; position: absolute; height: 24px; width: 24px; left: 3px; top: 3px; background: #e9e4f5; border-radius: 50%; transition: .2s; box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+  .switch input:checked + .slider { background: linear-gradient(180deg, #ff5a6e, #d12f43); border-color: transparent; box-shadow: 0 0 16px -3px rgba(246,70,93,.7); }
+  .switch input:checked + .slider::before { transform: translateX(26px); }
   .setnote.ok { color: var(--long); }
   .setnote.err { color: var(--short); }
   .radarwrap { display: flex; flex-direction: column; align-items: center; gap: 13px; padding: 30px 0 26px; }
@@ -485,6 +504,7 @@
         <button class="navitem" data-view="me" data-title="My Account" data-sub="Your live Hyperliquid wallet"><span class="ni-ic">👤</span><span class="ni-tx">My Account</span></button>
         <button class="navitem" data-view="bot" data-title="Copy-Bot" data-sub="Paper account · live mirror"><span class="ni-ic">🤖</span><span class="ni-tx">Copy-Bot</span></button>
         <button class="navitem" data-view="smart" data-title="Smart Money" data-sub="Top-100 trader tracker · auto-copy"><span class="ni-ic">🧠</span><span class="ni-tx">Smart Money</span></button>
+        <button class="navitem" data-view="live" data-title="Live Trading" data-sub="REAL money · echtes Geld"><span class="ni-ic">🔴</span><span class="ni-tx">Live Trading</span></button>
         <button class="navitem" data-view="markets" data-title="Markets" data-sub="Live Hyperliquid markets"><span class="ni-ic">📈</span><span class="ni-tx">Markets</span></button>
         <button class="navitem" data-view="finder" data-title="Whale Finder" data-sub="Top leaderboard traders ranked by performance"><span class="ni-ic">🏆</span><span class="ni-tx">Whale Finder</span></button>
         <button class="navitem" data-view="arcade" data-title="Arcade" data-sub="Pump or Dump — kill the boredom"><span class="ni-ic">🎮</span><span class="ni-tx">Arcade</span></button>
@@ -553,6 +573,53 @@
           <div class="vgrid">
             <section class="panel" id="smartTop"><header class="phead"><span class="wlabel">Tracked Top Traders</span></header><div class="state small">…</div></section>
             <section class="panel" id="smartClosed"><header class="phead"><span class="wlabel">Closed Trades</span></header><div class="state small">…</div></section>
+          </div>
+        </section>
+        <section class="view" id="view-live">
+          <div class="liverisk">⚠️ <b>Echtes Geld.</b> Diese Engine platziert echte Orders auf Hyperliquid Mainnet mit deinem Kapital — gleiche Regeln wie der Copy-Bot (1/5 Equity pro Trade · max 5 Positionen · TP pro Assetklasse · −25 % Tages-Kill-Switch · kein Stop-Loss). Sie ist standardmäßig <b>AUS</b> und tradet nur, solange du sie hier scharf schaltest.</div>
+          <div class="vgrid">
+            <section class="panel" id="liveCtl">
+              <header class="phead"><span class="wlabel">Live-Engine</span><span class="meta" id="liveNet">—</span></header>
+              <div class="pbody">
+                <div class="livemaster">
+                  <div><div class="livemlabel">Echtgeld-Trading</div><div class="setnote" id="liveStateNote">Lädt…</div></div>
+                  <label class="switch"><input type="checkbox" id="liveSwitch" onchange="liveToggle(this.checked)"><span class="slider"></span></label>
+                </div>
+                <div class="hero"><span class="herolabel">Account Value (live)</span><span class="heroval num" id="liveEquity">—</span></div>
+                <div class="statrow"><span>Tages-PnL</span><span class="num" id="liveDayPnl">—</span></div>
+                <div class="statrow"><span>Offene Positionen (vom Bot)</span><span class="num" id="liveOwned">—</span></div>
+                <div class="statrow"><span>Kill-Switch</span><span class="num" id="liveKill">—</span></div>
+                <div class="statrow"><span>Account</span><span class="num" id="liveAddr">—</span></div>
+                <div class="liveerr" id="liveErr" style="display:none"></div>
+                <button class="btn danger" id="livePanic" style="width:100%;margin-top:12px" onclick="livePanic()">🧹 PANIC — Engine aus &amp; alle Bot-Positionen schließen</button>
+              </div>
+            </section>
+            <section class="panel" id="liveSettings">
+              <header class="phead"><span class="wlabel">Einstellungen</span></header>
+              <div class="pbody">
+                <div class="stratbox"><div class="strathd">Regeln (wie Copy-Bot)</div>
+                  <div class="statrow"><span>Größe pro Trade</span><span class="num" id="liveCap">—</span></div>
+                  <div class="statrow"><span>Max. Positionen</span><span class="num" id="liveMaxPos">—</span></div>
+                  <div class="statrow"><span>Take-Profit Crypto</span><span class="num" id="liveTpC">—</span></div>
+                  <div class="statrow"><span>Take-Profit Stocks</span><span class="num" id="liveTpS">—</span></div>
+                  <div class="statrow"><span>Tages-Kill-Switch</span><span class="num" id="liveDaily">—</span></div>
+                </div>
+                <div class="setrow" style="margin-top:14px">
+                  <label class="setlbl">Leverage-Cap (Sicherheit)</label>
+                  <div class="setinline">
+                    <input id="liveMaxLev" class="tgin" type="number" min="1" max="40" step="1" style="max-width:90px">
+                    <button class="btn" onclick="liveSaveSettings()">Speichern</button>
+                  </div>
+                  <div class="setnote">Live-Hebel = min(Copy-Bot-Hebel, dieser Cap). Aktuell effektiv: <b id="liveEffLev">—</b>×. Take-Profit &amp; Tracking-Wallet änderst du in den normalen <b>Settings</b>.</div>
+                </div>
+                <div class="setnote" style="margin-top:12px">Agent-Key liegt nur in <code>config.json</code> auf dem Server (gitignored, trade-only, kann nicht abheben). Fehlt er, lässt sich die Engine nicht scharf schalten.</div>
+              </div>
+            </section>
+          </div>
+          <section class="panel" id="livePos"><header class="phead"><span class="wlabel">Live Positionen</span></header><div class="state small">…</div></section>
+          <div class="vgrid">
+            <section class="panel" id="liveLog"><header class="phead"><span class="wlabel">Engine-Log</span></header><div class="state small">…</div></section>
+            <section class="panel" id="liveClosed"><header class="phead"><span class="wlabel">Geschlossene Live-Trades</span></header><div class="state small">…</div></section>
           </div>
         </section>
         <section class="view" id="view-watch">
@@ -1547,8 +1614,90 @@ function renderBot(s) {
   botMyClosed = Array.isArray(s.my_closed) ? s.my_closed : null;
   renderMyClosed();
   renderSmart(s.smart || {});
+  renderLive(s.live || {});
 }
 function smShort(a) { return a ? a.slice(0, 6) + "…" + a.slice(-4) : ""; }
+/* ---------- Live Trading (real money) ---------- */
+let liveSwitchBusy = false;
+function renderLive(lv) {
+  const sw = document.getElementById("liveSwitch");
+  if (sw && !liveSwitchBusy) sw.checked = !!lv.enabled;
+  const note = document.getElementById("liveStateNote");
+  if (note) {
+    if (lv.enabled && lv.ready) note.innerHTML = '<span class="pos">🟢 AKTIV — tradet mit echtem Geld</span>';
+    else if (lv.enabled && !lv.ready) note.innerHTML = '<span class="neg">⚠️ aktiviert, aber nicht bereit (siehe Fehler)</span>';
+    else note.innerHTML = '<span style="color:var(--muted)">⚪ AUS — kein Echtgeld-Trading</span>';
+  }
+  const net = document.getElementById("liveNet");
+  if (net) net.textContent = lv.net ? "🔴 " + lv.net : "—";
+  const setT = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  const money = (id, v) => { const e = document.getElementById(id); if (!e) return; if (v == null) { e.textContent = "—"; return; } e.textContent = fmtSignedC(v); e.classList.toggle("pos", v >= 0); e.classList.toggle("neg", v < 0); };
+  setT("liveEquity", lv.equity != null ? fmtUsdC(lv.equity) : "—");
+  money("liveDayPnl", lv.equity != null ? (lv.day_pnl || 0) : null);
+  setT("liveOwned", (lv.owned != null ? lv.owned : 0) + " / " + (lv.max_positions || 5));
+  setT("liveKill", lv.killed ? "🛑 ausgelöst" : "ok");
+  setT("liveAddr", lv.addr ? smShort(lv.addr) : "—");
+  setT("liveCap", lv.capital_pct != null ? lv.capital_pct + "% Equity" : "—");
+  setT("liveMaxPos", lv.max_positions != null ? lv.max_positions : "—");
+  setT("liveTpC", lv.tp_crypto_pct != null ? "+" + lv.tp_crypto_pct + "%" : "—");
+  setT("liveTpS", lv.tp_stock_pct != null ? "+" + lv.tp_stock_pct + "%" : "—");
+  setT("liveDaily", lv.daily_loss_pct != null ? "−" + lv.daily_loss_pct + "%" : "—");
+  setT("liveEffLev", lv.lev != null ? lv.lev : "—");
+  const lvl = document.getElementById("liveMaxLev");
+  if (lvl && document.activeElement !== lvl && lv.max_lev != null) lvl.value = lv.max_lev;
+  const err = document.getElementById("liveErr");
+  if (err) { if (lv.err && lv.enabled) { err.style.display = "block"; err.textContent = "⚠️ " + lv.err; } else err.style.display = "none"; }
+  // positions
+  const pp = document.getElementById("livePos");
+  if (pp) {
+    const rows = (lv.pos || []).map((p) => {
+      const up = (p.upnl || 0) >= 0;
+      return `<tr><td><span class="side ${p.side === "LONG" ? "long" : "short"}">${p.side}</span> ${esc(p.coin)} ${p.owned ? '<span class="livetag">BOT</span>' : ""}</td>
+        <td class="num">${fmtP(p.entry)}</td><td class="num">${fmtP(p.mark)}</td><td class="num">${(p.lev || 0)}×</td>
+        <td class="num">${fmtUsdC(p.margin || 0)}</td>
+        <td class="num ${up ? "pos" : "neg"}">${fmtSignedC(p.upnl)}</td><td class="num ${up ? "pos" : "neg"}">${((p.roe || 0) * 100).toFixed(1)}%</td></tr>`;
+    }).join("");
+    pp.innerHTML = `<header class="phead"><span class="wlabel">Live Positionen</span><span class="meta">${(lv.pos || []).length}</span></header>
+      <div class="pbody">${rows ? `<div class="tablewrap"><table><thead><tr><th>Position</th><th>Entry</th><th>Mark</th><th>Lev</th><th>Margin</th><th>uPnL</th><th>ROE</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="state small">Keine offenen Live-Positionen.</div>`}</div>`;
+  }
+  const lg = document.getElementById("liveLog");
+  if (lg) {
+    const rows = (lv.log || []).map((e) => `<div class="logrow"><span class="logt">${esc(e.t)}</span>${esc(e.text)}</div>`).join("") || `<div class="state small">Noch keine Engine-Events.</div>`;
+    lg.innerHTML = `<header class="phead"><span class="wlabel">Engine-Log</span></header><div class="pbody"><div class="botlog tall">${rows}</div></div>`;
+  }
+  const cl = document.getElementById("liveClosed");
+  if (cl) {
+    const rows = (lv.closed || []).map((t) => { const w = (t.pnl || 0) >= 0; return `<div class="logrow"><span class="logt">${esc(t.side || "")} ${esc(t.coin || "")}</span> <span class="num ${w ? "pos" : "neg"}">${fmtSignedC(t.pnl)}</span> · <span style="color:var(--muted)">${esc(t.reason || "")}</span></div>`; }).join("") || `<div class="state small">Noch keine geschlossenen Live-Trades.</div>`;
+    cl.innerHTML = `<header class="phead"><span class="wlabel">Geschlossene Live-Trades</span></header><div class="pbody"><div class="botlog tall">${rows}</div></div>`;
+  }
+}
+async function liveToggle(on) {
+  if (on && !confirm("ECHTES GELD: Die Live-Engine wird scharf geschaltet und tradet ab sofort automatisch mit deinem echten Kapital auf Hyperliquid Mainnet.\n\nGleiche Regeln wie der Copy-Bot. Wirklich aktivieren?")) {
+    document.getElementById("liveSwitch").checked = false; return;
+  }
+  liveSwitchBusy = true;
+  try {
+    const r = await fetch("/live_toggle?token=" + encodeURIComponent(DASH_TOKEN), {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "on=" + (on ? "1" : "0") });
+    const j = await r.json();
+    if (!j.ok) { alert("Konnte nicht aktivieren:\n" + (j.error || "unbekannter Fehler")); document.getElementById("liveSwitch").checked = false; }
+  } catch (e) { alert("Fehler: " + e); document.getElementById("liveSwitch").checked = false; }
+  setTimeout(() => { liveSwitchBusy = false; }, 1500);
+}
+async function liveSaveSettings() {
+  const ml = document.getElementById("liveMaxLev").value;
+  try {
+    const r = await fetch("/live_settings?token=" + encodeURIComponent(DASH_TOKEN), {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "max_lev=" + encodeURIComponent(ml) });
+    const j = await r.json();
+    if (j.ok) { const e = document.getElementById("liveEffLev"); if (e) e.textContent = j.lev; }
+  } catch (e) { alert("Fehler: " + e); }
+}
+async function livePanic() {
+  if (!confirm("PANIC: Engine sofort ausschalten UND alle vom Bot eröffneten Live-Positionen zu Marktpreis schließen?")) return;
+  try { await fetch("/live_flatten?token=" + encodeURIComponent(DASH_TOKEN), { method: "POST" }); } catch (e) {}
+  const sw = document.getElementById("liveSwitch"); if (sw) sw.checked = false;
+}
 /* ---------- data-kraken fetch animation ---------- */
 const OCTO = { raf: 0, last: 0, t: 0, c: null, x: null, W: 0, H: 0, tok: [], spawn: 0 };
 function octoResize() { const c = OCTO.c; if (!c) return; const dpr = Math.min(window.devicePixelRatio || 1, 2); OCTO.W = c.clientWidth || 440; OCTO.H = 240; c.width = OCTO.W * dpr; c.height = OCTO.H * dpr; OCTO.x.setTransform(dpr, 0, 0, dpr, 0, 0); }
