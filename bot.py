@@ -646,6 +646,32 @@ def record_closed(p, pnl, reason):
     if len(PAPER["closed"]) > 500:
         del PAPER["closed"][:len(PAPER["closed"]) - 500]
 
+def paper_normalize_tps_today(target=TP_ROE):
+    """One-time (idempotent) correction: rewrite TODAY's already-closed take-profit trades
+    to exactly +target ROE and refund the over-target overshoot back into cash. These only
+    overshot 12% because the bot was frozen/restarted and filled late — clean up the history."""
+    today = datetime.datetime.now(LOCAL_TZ).date() if LOCAL_TZ else datetime.date.today()
+    fixed = 0; delta = 0.0
+    for t in PAPER.get("closed", []):
+        if t.get("reason") != "take-profit":
+            continue
+        cms = t.get("closed_ms") or 0
+        if not cms:
+            continue
+        d = (datetime.datetime.fromtimestamp(cms / 1000, LOCAL_TZ).date() if LOCAL_TZ
+             else datetime.datetime.fromtimestamp(cms / 1000).date())
+        if d != today:
+            continue
+        m = t.get("margin") or 0
+        tgt = round(target * m, 2)
+        if m > 0 and float(t.get("pnl", 0)) > tgt + 0.01:
+            delta += float(t["pnl"]) - tgt
+            t["pnl"] = tgt; t["roe"] = target; fixed += 1
+    if fixed:
+        PAPER["cash"] = round(PAPER["cash"] - delta, 2)
+        print("paper: normalized %d take-profits today to %.0f%% ROE (cash -$%.2f)" % (fixed, target * 100, delta))
+    return fixed
+
 def closed_summary():
     c = PAPER.get("closed", [])
     wins = sum(1 for t in c if t["pnl"] > 0)
@@ -1040,6 +1066,8 @@ def run_paper():
     load_secrets()
     save_secrets()          # persist a stable dash token + ensure secrets.json exists from the first run
     loaded = load_paper()
+    if loaded:
+        paper_normalize_tps_today()   # retro-fix today's take-profits that overshot +12% (idempotent)
     start_server()
     threading.Thread(target=start_tunnel, daemon=True).start()
     threading.Thread(target=run_smart, daemon=True).start()   # Smart-Money top-100 tracker (separate paper book)
