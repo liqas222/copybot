@@ -2594,17 +2594,23 @@ function rugBig(x, W, H, col) {
 
 /* ---------- Arcade: Moon Lander (gravity / soft-landing) ---------- */
 const MOON = { inited: false, best: 0, raf: 0, last: 0, phase: "idle", W: 0, H: 0,
-  x: 0, y: 0, vx: 0, vy: 0, fuel: 100, pad: 0, padW: 64, ground: 224, thrU: false, thrL: false, thrR: false,
+  x: 0, y: 0, vx: 0, vy: 0, fuel: 100, pad: 0, padW: 76, ground: 224, thrU: false, thrL: false, thrR: false,
   stars: null, flame: 0, bound: false };
-const MOON_G = 26, MOON_TUP = 64, MOON_TLAT = 42, MOON_BURN_U = 19, MOON_BURN_L = 11, MOON_SAFE_VY = 34, MOON_SAFE_VX = 26;
+const MOON_G = 24, MOON_TUP = 64, MOON_TLAT = 52, MOON_BURN_U = 16, MOON_BURN_L = 9, MOON_SAFE_VY = 38, MOON_SAFE_VX = 32;
 function moonResize(c) { const dpr = Math.min(window.devicePixelRatio || 1, 2); MOON.W = c.clientWidth || 600; MOON.H = 240; c.width = MOON.W * dpr; c.height = MOON.H * dpr; c.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0); }
 function moonSet(id, v, cls) { const e = document.getElementById(id); if (!e) return; e.textContent = v; if (cls !== undefined) e.className = "num " + cls; }
 function moonReset() {
   if (!MOON.inited) { MOON.best = +(localStorage.getItem("moBest") || 0); moonBind(); MOON.inited = true; }
   const c = document.getElementById("moonCanvas"); if (c) moonResize(c);
   const W = MOON.W || 600;
-  MOON.x = _rnd(W * 0.2, W * 0.8); MOON.y = 26; MOON.vx = _rnd(-14, 14); MOON.vy = 0; MOON.fuel = 100;
-  MOON.pad = _rnd(40, W - 40 - MOON.padW); MOON.phase = "fly"; MOON.flame = 0;
+  // place the pad first (away from the extreme edges), then spawn the rocket within
+  // gliding range of it with a gentle drift -> every flight is actually winnable.
+  MOON.pad = _rnd(W * 0.16, W * 0.84 - MOON.padW); MOON.phase = "fly"; MOON.flame = 0;
+  const padC = MOON.pad + MOON.padW / 2;
+  MOON.x = Math.max(28, Math.min(W - 28, padC + _rnd(-W * 0.3, W * 0.3)));
+  MOON.y = 26; MOON.vy = 0; MOON.fuel = 100;
+  // small drift, never pointing hard at a wall (bias it gently back toward the pad)
+  MOON.vx = _rnd(-7, 7) + Math.sign(padC - MOON.x) * _rnd(0, 3);
   MOON.thrU = MOON.thrL = MOON.thrR = false;
   MOON.stars = Array.from({ length: 46 }, () => ({ x: _rnd(0, W), y: _rnd(0, MOON.ground - 10), r: _rnd(0.4, 1.4) }));
   moonSet("moFuel", "100%", "pos"); moonSet("moVy", "0.0", ""); moonSet("moBest", MOON.best); moonSet("moState", "fliegt", "");
