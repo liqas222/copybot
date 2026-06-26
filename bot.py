@@ -1331,17 +1331,6 @@ def live_record_close(key, reason):
     else:
         live_log("🔻 CLOSE %s %s (%s) · PnL wird von Hyperliquid abgerechnet" % (side, bare, reason), "close")
 
-def live_close(w, reason):
-    ex = LIVE["ex"]
-    if not ex:
-        return
-    key = w["key"]
-    try:
-        ex.market_close(w["coin"])
-        time.sleep(1.2)                 # let the closing fill register so we can read its PnL
-        live_record_close(key, reason)
-    except Exception as e:
-        live_log("❌ Fehler beim Schließen %s: %s" % (w["bare"], e), "err")
 
 def live_flatten():
     """Panic: close every engine-owned position immediately and disable the engine."""
@@ -1462,7 +1451,9 @@ def run_live():
                 if key not in livepos:
                     live_record_close(key, "take-profit")
 
-            # confirmed whale-exit -> close OUR copy (only engine-owned keys)
+            # whale-exit: we do NOT close our copy when the whale closes — our positions
+            # are managed ONLY by their own take-profit / liquidation. We just stop tracking
+            # the key so a later whale re-open of the same coin can be copied again.
             for key in list(known):
                 if key in whale:
                     miss[key] = 0
@@ -1470,8 +1461,6 @@ def run_live():
                     miss[key] = miss.get(key, 0) + 1
                     if miss[key] >= CLOSE_CONFIRM:
                         known.discard(key); miss.pop(key, None)
-                        if key in LIVE["owned"] and key in livepos:
-                            live_close(livepos[key], "whale exit")
 
             # confirmed NEW opens -> copy with real orders
             cand = set(k for k in whale if k[0] in okdex and k not in known)
