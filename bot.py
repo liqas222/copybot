@@ -1292,7 +1292,7 @@ def live_publish():
             "lev": live_lev(), "capital_pct": round(CAPITAL_FRACTION * 100, 1),
             "max_positions": MAX_POSITIONS, "tp_crypto_pct": round(SET["tp_crypto"] * 100, 2),
             "tp_stock_pct": round(SET["tp_stock"] * 100, 2), "daily_loss_pct": round(DAILY_LOSS_LIMIT * 100, 1),
-            "owned": len(LIVE["owned"]), "pos": rows,
+            "owned": len(LIVE["owned"]), "open_total": len(rows), "pos": rows,
             "closed": LIVE["closed"][-40:][::-1], "log": LIVE["log"][-50:][::-1],
         }
 
@@ -1381,8 +1381,13 @@ def run_live():
                     continue
                 if LIVE["killed"]:
                     live_log("⏭️ %s übersprungen — Kill-Switch." % whale[key]["bare"], "skip"); continue
-                if len(LIVE["owned"]) >= MAX_POSITIONS:
-                    live_log("⏭️ %s übersprungen — %d Slots voll." % (whale[key]["bare"], MAX_POSITIONS), "skip"); continue
+                # account-wide cap: ALL open positions (your manual ones + the bot's)
+                # count against the 5 — re-read live to stay current within this poll.
+                try:    open_total = len(get_positions(EXEC_URL, LIVE["addr"]))
+                except Exception: open_total = len(livepos)
+                if open_total >= MAX_POSITIONS:
+                    live_log("⏭️ %s übersprungen — %d/%d Slots belegt (inkl. deiner manuellen Trades)."
+                             % (whale[key]["bare"], open_total, MAX_POSITIONS), "skip"); continue
                 live_open(whale[key], equity)
 
             live_publish()
