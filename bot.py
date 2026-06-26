@@ -1443,7 +1443,7 @@ def run_live():
                 based |= new_dex
             if not announced:
                 announced = True
-                live_log("👀 Beobachte ab jetzt — bestehende Whale-Positionen werden NICHT kopiert. Nur NEUE, %d× bestätigt." % OPEN_CONFIRM, "info")
+                live_log("👀 Beobachte ab jetzt — bestehende Whale-Positionen werden NICHT kopiert. Nur NEUE, über %d Polls bestätigt (Anti-Flicker, KEIN Hebel)." % OPEN_CONFIRM, "info")
                 live_publish(); time.sleep(POLL_SECONDS); continue
 
             # reconcile: an engine-owned position that vanished closed via TP (or by hand)
