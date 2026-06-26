@@ -875,10 +875,15 @@ def smart_pnl(p, mids):
 def smart_equity(mids):
     return SMART["cash"] + sum(smart_pnl(p, mids) for p in SMART["pos"].values())
 
-def smart_record(p, pnl, reason, mids):
+def smart_tp_price(p):
+    """Exact price at which our +TP ROE is reached (ROE = lev * price-move)."""
+    move = p["tp"] / p["lev"]
+    return p["entry"] * (1 + move) if p["side"] == "LONG" else p["entry"] * (1 - move)
+
+def smart_record(p, pnl, reason, mids, exitpx=None):
     roe = (pnl / p["margin"]) if p.get("margin") else 0.0
     SMART["closed"].append({"coin": p["coin"], "side": p["side"], "entry": p["entry"],
-        "exit": smart_mark(p, mids), "lev": p["lev"], "margin": round(p["margin"], 2),
+        "exit": exitpx if exitpx is not None else smart_mark(p, mids), "lev": p["lev"], "margin": round(p["margin"], 2),
         "pnl": round(pnl, 2), "roe": round(roe, 4), "peak_roe": round(p.get("peak_roe", 0.0), 4),
         "src_name": p.get("src_name", ""), "opened_ms": p.get("opened_ms", 0),
         "closed_ms": int(time.time() * 1000), "reason": reason})
@@ -983,9 +988,11 @@ def run_smart():
                         smart_log("💥 LIQ %s — -$%.2f" % (coin, p["margin"]), "liq")
                         sm_events.append("🧠 SMART 💥 LIQUIDATED %s — -$%.2f" % (coin, p["margin"]))
                     elif roe >= p["tp"]:
-                        SMART["cash"] += pnl; SMART["pos"].pop(coin); smart_record(p, pnl, "take-profit", mids)
-                        smart_log("🎯 TP %s +$%.2f" % (coin, pnl), "tp")
-                        sm_events.append("🧠 SMART 🎯 TP %s +$%.2f" % (coin, pnl))
+                        tppx = smart_tp_price(p)              # fill exactly at the +12% target, not the overshot mark
+                        tp_pnl = p["tp"] * p["margin"]        # => PnL is exactly TP% of margin
+                        SMART["cash"] += tp_pnl; SMART["pos"].pop(coin); smart_record(p, tp_pnl, "take-profit", mids, exitpx=tppx)
+                        smart_log("🎯 TP %s +$%.2f (%.0f%%)" % (coin, tp_pnl, p["tp"] * 100), "tp")
+                        sm_events.append("🧠 SMART 🎯 TP %s +$%.2f (%.0f%% ROE)" % (coin, tp_pnl, p["tp"] * 100))
             for e in sm_events:
                 tg(e)
             # poll ONE trader per tick (staggered over the whole list)
@@ -1090,9 +1097,10 @@ def run_paper():
                         record_closed(p, -p["margin"], "liquidated")
                         events.append("💥 LIQUIDATED %s — margin lost ($%.2f)" % (p["bare"], p["margin"]))
                     elif roe >= tp:
-                        PAPER["cash"] += pnl; PAPER["pos"].pop(key)
-                        record_closed(p, pnl, "take-profit")
-                        events.append("🎯 TP +%.0f%% ROE %s — profit $%.2f" % (tp * 100, p["bare"], pnl))
+                        tp_pnl = tp * p["margin"]    # fill exactly at the +TP target, not the overshot mark
+                        PAPER["cash"] += tp_pnl; PAPER["pos"].pop(key)
+                        record_closed(p, tp_pnl, "take-profit")
+                        events.append("🎯 TP +%.0f%% ROE %s — profit $%.2f" % (tp * 100, p["bare"], tp_pnl))
 
                 # confirmed whale-exit: a known key absent on a successfully-read dex
                 # for CLOSE_CONFIRM polls -> forget it (and close our copy if we hold one)
