@@ -410,6 +410,15 @@
   #scanRadar { width: 56px; height: 56px; flex-shrink: 0; }
   .scantitle { font-weight: 600; font-size: 13px; color: var(--text); display: flex; align-items: center; gap: 7px; }
   .scandot { width: 7px; height: 7px; border-radius: 50%; background: var(--long); box-shadow: 0 0 8px var(--long); animation: ledPulse 1.6s ease-in-out infinite; }
+  /* smart-money decision feed + live scanner stacked in one grid cell */
+  .smartstack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .smartstack > .panel { margin: 0; }
+  .scancd-h { font-family: var(--mono); font-size: 11.5px; color: var(--purple); background: rgba(168,85,247,.12);
+    border: 1px solid rgba(168,85,247,.3); border-radius: 999px; padding: 2px 9px; letter-spacing: .3px; white-space: nowrap; }
+  .scanocto-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 8px 8px 14px; }
+  #scanOcto { width: 100%; max-width: 420px; height: 150px; display: block; }
+  .scanocto-status { font-family: var(--mono); font-size: 12px; color: var(--muted); text-align: center; transition: color .3s; }
+  .scanocto-status.scan-hot { color: var(--purple); text-shadow: 0 0 10px rgba(168,85,247,.5); }
   /* boredom screensaver */
   #chillBtn { position: fixed; right: 18px; bottom: 18px; z-index: 300; width: 46px; height: 46px; border-radius: 50%;
     border: 1px solid rgba(168,85,247,.5); background: radial-gradient(circle at 30% 30%, #a855f7, #6366f1); color: #fff;
@@ -491,7 +500,16 @@
         <section class="view" id="view-smart">
           <div class="vgrid">
             <section class="panel" id="smartPort"><header class="phead"><span class="wlabel">Smart Money · Paper</span></header><div class="state small">Lädt… (Engine startet beim Server-Start)</div></section>
-            <section class="panel" id="smartSignals"><header class="phead"><span class="wlabel">Decision Feed</span></header><div class="state small">…</div></section>
+            <div class="smartstack">
+              <section class="panel" id="smartSignals"><header class="phead"><span class="wlabel">Decision Feed</span></header><div class="state small">…</div></section>
+              <section class="panel" id="smartScan">
+                <header class="phead"><span class="wlabel">Live Trade-Scanner</span><span class="meta"><span class="scancd-h" id="scanCountdown">…</span></span></header>
+                <div class="scanocto-wrap">
+                  <canvas id="scanOcto"></canvas>
+                  <div class="scanocto-status" id="scanOctoStatus">Tastet Trader-Positionen ab…</div>
+                </div>
+              </section>
+            </div>
           </div>
           <section class="panel" id="smartPos"><header class="phead"><span class="wlabel">Open Positions</span></header><div class="state small">…</div></section>
           <div class="vgrid">
@@ -1463,15 +1481,79 @@ function scanRadarLoop(ts) {
     x.fillStyle = `rgba(56,224,140,${0.25 + lit * 0.75})`; x.beginPath(); x.arc(bx, by, 1.6 + lit * 1.6, 0, 7); x.fill(); }
   SCAN.raf = requestAnimationFrame(scanRadarLoop);
 }
+/* ---------- live trade-scanner: searching octopus + looping 60s countdown ---------- */
+const SOCTO = { raf: 0, last: 0, t: 0, W: 0, H: 0, arms: null, finds: [], cd: 60, flash: 0 };
+function socResize(c) { const dpr = Math.min(window.devicePixelRatio || 1, 2); SOCTO.W = c.clientWidth || 360; SOCTO.H = 150; c.width = SOCTO.W * dpr; c.height = SOCTO.H * dpr; c.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0); }
+function scanOctoStart() { if (!SOCTO.raf) { SOCTO.last = 0; SOCTO.cd = 60; SOCTO.flash = 0; SOCTO.finds = []; SOCTO.raf = requestAnimationFrame(scanOctoLoop); } }
+function scanOctoLoop(ts) {
+  const c = document.getElementById("scanOcto");
+  const view = document.getElementById("view-smart");
+  if (!c || !view || !view.classList.contains("active")) { SOCTO.raf = 0; return; }  // self-stop when hidden
+  if (c.clientWidth && SOCTO.W !== c.clientWidth) socResize(c);
+  const dt = SOCTO.last ? Math.min((ts - SOCTO.last) / 1000, 0.05) : 0.016; SOCTO.last = ts; SOCTO.t += dt;
+  // looping countdown (cosmetic — server scans continuously every ~60s)
+  SOCTO.cd -= dt;
+  const cdEl = document.getElementById("scanCountdown"), stEl = document.getElementById("scanOctoStatus");
+  if (SOCTO.cd <= 0) {
+    if (SOCTO.flash <= 0) { SOCTO.flash = 2.4; for (let i = 0; i < 5; i++) SOCTO.finds.push({ a: _rnd(0, 6.28), r: 0.55, life: 1, big: 1 }); }
+    SOCTO.flash -= dt;
+    if (cdEl) cdEl.textContent = "🧠 Analysiere Trades!";
+    if (stEl) { stEl.textContent = "Werte neue Positionen aus…"; stEl.classList.add("scan-hot"); }
+    if (SOCTO.flash <= 0) SOCTO.cd = 60;
+  } else {
+    if (cdEl) { const s = Math.ceil(SOCTO.cd); cdEl.textContent = "⏱ Scan in " + String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0"); }
+    if (stEl && stEl.classList.contains("scan-hot")) { stEl.textContent = "Tastet Trader-Positionen ab…"; stEl.classList.remove("scan-hot"); }
+  }
+  const x = c.getContext("2d"), W = SOCTO.W, H = SOCTO.H, cx = W / 2, cy = H / 2 + 8;
+  x.clearRect(0, 0, W, H);
+  const R = Math.min(W, H) * 0.78, hot = SOCTO.flash > 0;
+  if (!SOCTO.arms) SOCTO.arms = Array.from({ length: 8 }, (_, i) => ({ base: i * Math.PI / 4, ph: _rnd(0, 6.28), sp: _rnd(1.0, 1.7) }));
+  // tentacles probing outward, searching
+  for (const a of SOCTO.arms) {
+    const sweep = Math.sin(SOCTO.t * 0.6 + a.ph) * 0.5;
+    const ang = a.base + sweep + Math.sin(SOCTO.t * a.sp + a.ph) * 0.12;
+    const reach = R * (0.55 + 0.45 * (0.5 + 0.5 * Math.sin(SOCTO.t * a.sp * 0.9 + a.ph))) * (hot ? 1.08 : 1);
+    x.beginPath();
+    for (let k = 0; k <= 18; k++) { const f = k / 18, wob = Math.sin(SOCTO.t * 2.4 + a.ph + f * 5) * 9 * f;
+      const px = cx + Math.cos(ang) * reach * f + Math.cos(ang + Math.PI / 2) * wob;
+      const py = cy + Math.sin(ang) * reach * f * 0.62 + Math.sin(ang + Math.PI / 2) * wob;
+      k ? x.lineTo(px, py) : x.moveTo(px, py); }
+    x.strokeStyle = hot ? `hsla(${300 + Math.sin(a.ph) * 10},90%,70%,.8)` : `hsla(${268 + a.base * 6},80%,64%,.62)`;
+    x.lineWidth = 2.4; x.lineCap = "round"; x.stroke();
+    const tx = cx + Math.cos(ang) * reach, ty = cy + Math.sin(ang) * reach * 0.62;
+    x.fillStyle = hot ? "hsla(305,95%,75%,.95)" : "hsla(280,85%,72%,.85)"; x.shadowColor = x.fillStyle; x.shadowBlur = 9;
+    x.beginPath(); x.arc(tx, ty, 2.6, 0, 7); x.fill(); x.shadowBlur = 0;
+  }
+  // occasional "found a trade" dots that get pulled toward the body
+  if (Math.random() < dt * 1.4) SOCTO.finds.push({ a: _rnd(0, 6.28), r: 1, life: 1, big: 0 });
+  x.font = "12px JetBrains Mono, monospace";
+  for (const fd of SOCTO.finds) {
+    fd.r -= dt * 0.9; fd.life -= dt * 0.5; if (fd.r < 0.05) fd.life = Math.min(fd.life, 0.1);
+    const fx = cx + Math.cos(fd.a) * R * fd.r, fy = cy + Math.sin(fd.a) * R * fd.r * 0.62;
+    x.fillStyle = `hsla(${fd.big ? 150 : 300},90%,68%,${Math.max(0, fd.life)})`;
+    x.fillText("◆", fx - 4, fy + 4);
+  }
+  SOCTO.finds = SOCTO.finds.filter((f) => f.life > 0).slice(-40);
+  // octopus head
+  const g = x.createRadialGradient(cx, cy, 0, cx, cy, 22);
+  g.addColorStop(0, hot ? "#e879f9" : "#c084fc"); g.addColorStop(1, "#6d28d9");
+  x.fillStyle = g; x.shadowColor = "rgba(168,85,247,.8)"; x.shadowBlur = hot ? 30 : 20;
+  x.beginPath(); x.ellipse(cx, cy, 22, 19, 0, 0, 7); x.fill(); x.shadowBlur = 0;
+  // eyes follow the nearest active arm-sweep
+  const look = Math.sin(SOCTO.t * 0.6) * 3;
+  x.fillStyle = "#0a0a0f"; x.beginPath(); x.arc(cx - 7, cy - 2, 3.4, 0, 7); x.arc(cx + 7, cy - 2, 3.4, 0, 7); x.fill();
+  x.fillStyle = "#fff"; x.beginPath(); x.arc(cx - 7 + look, cy - 3, 1.3, 0, 7); x.arc(cx + 7 + look, cy - 3, 1.3, 0, 7); x.fill();
+  SOCTO.raf = requestAnimationFrame(scanOctoLoop);
+}
 let SMART_VIEWMODE = "", smartNextMs = 0;
 function smartCountdownTick() {
   const el = document.getElementById("smartCountdown"); if (!el) return;
   if (SMART_VIEWMODE === "build") { el.textContent = "🐙 wird aktualisiert…"; return; }
-  if (!smartNextMs) { el.textContent = "🔄 bald"; return; }
+  if (!smartNextMs) { el.textContent = "🔄 Liste bald"; return; }
   let s = Math.round((smartNextMs - Date.now()) / 1000);
-  if (s <= 0) { el.textContent = "🔄 startet gleich…"; return; }
+  if (s <= 0) { el.textContent = "🔄 wird neu gebaut…"; return; }
   const m = Math.floor(s / 60), ss = s % 60;
-  el.textContent = "🔄 neu in " + String(m).padStart(2, "0") + ":" + String(ss).padStart(2, "0");
+  el.textContent = "🔄 Update in " + String(m).padStart(2, "0") + ":" + String(ss).padStart(2, "0");
 }
 function renderSmart(sm) {
   const port = document.getElementById("smartPort");
@@ -1518,6 +1600,7 @@ function renderSmart(sm) {
   smartNextMs = sm.next_build_ms || 0;
   smartCountdownTick();
   scanRadarStart();
+  scanOctoStart();
   renderSmartAux(sm);
 }
 function renderSmartAux(sm) {
@@ -1532,10 +1615,11 @@ function renderSmartAux(sm) {
       const up = (p.upnl || 0) >= 0;
       return `<tr><td><span class="side ${p.side === "LONG" ? "long" : "short"}">${p.side}</span> ${esc(p.coin)}</td>
         <td class="num">${esc(p.src_name || "")}</td><td class="num">$${fmtP(p.entry)}</td><td class="num">$${fmtP(p.mark)}</td>
+        <td class="num">${fmtUsdC(p.margin || 0)}</td>
         <td class="num ${up ? "pos" : "neg"}">${fmtSignedC(p.upnl)}</td><td class="num ${up ? "pos" : "neg"}">${((p.roe || 0) * 100).toFixed(1)}%</td></tr>`;
     }).join("");
     pp.innerHTML = `<header class="phead"><span class="wlabel">Open Positions</span><span class="meta">${(sm.pos || []).length}</span></header>
-      <div class="pbody">${rows ? `<div class="tablewrap"><table><thead><tr><th>Position</th><th>Quelle</th><th>Entry</th><th>Mark</th><th>uPnL</th><th>ROE</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="state small">Keine offenen Positionen.</div>`}</div>`;
+      <div class="pbody">${rows ? `<div class="tablewrap"><table><thead><tr><th>Position</th><th>Quelle</th><th>Entry</th><th>Mark</th><th>Margin</th><th>uPnL</th><th>ROE</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="state small">Keine offenen Positionen.</div>`}</div>`;
   }
   const tp = document.getElementById("smartTop");
   if (tp) {
@@ -1999,7 +2083,7 @@ function showView(name) {
   try { localStorage.setItem("ccView", name); } catch (e) {}
   if (name === "finder" && !_lb && !finderRunning && typeof runFinder === "function") runFinder();
   if (typeof pgStop === "function") { if (name === "arcade") setTimeout(pgOpen, 0); else pgStop(); }
-  if (name === "smart" && typeof scanRadarStart === "function") setTimeout(scanRadarStart, 0);
+  if (name === "smart" && typeof scanRadarStart === "function") { setTimeout(scanRadarStart, 0); setTimeout(scanOctoStart, 0); }
 }
 function initNav() {
   document.querySelectorAll(".navitem").forEach((n) => n.addEventListener("click", () => showView(n.dataset.view)));
