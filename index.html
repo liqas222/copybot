@@ -295,6 +295,9 @@
   .radartext span { color: var(--muted); font-size: 12px; }
   @media (prefers-reduced-motion: reduce) { .radar .ring, .radar .dot.beat { animation: none; } .radar .ring:first-child { opacity: .4; } }
   .logrow { font-size: 11.5px; padding: 3px 0; }
+  .botlog.smbig { max-height: 460px; }
+  .botlog.smbig .logrow { font-size: 14px; padding: 7px 0; line-height: 1.5; }
+  .botlog.smbig .srcfull { font-size: 12.5px; }
   .logt { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
 
   .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 20px; }
@@ -1949,7 +1952,7 @@ function renderSmartAux(sm) {
       const d = days <= 0 ? "heute" : days === 1 ? "1 Tag" : days + " Tagen";
       sinceTxt = `<div class="setnote" style="margin:0 0 10px">⏱ Läuft seit ${d} · gestartet ${fmtDate(sm.start_ms)}</div>`;
     }
-    cl.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span><span class="meta">${metaTxt}</span></header><div class="pbody">${sinceTxt}<div class="botlog tall">${rows}</div></div>`;
+    cl.innerHTML = `<header class="phead"><span class="wlabel">Closed Trades</span><span class="meta">${metaTxt}</span></header><div class="pbody">${sinceTxt}<div class="botlog tall smbig">${rows}</div></div>`;
   }
 }
 // top KPI band — all about MY account. Live values (total, unrealized, positions)
