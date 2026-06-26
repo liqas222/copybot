@@ -37,7 +37,10 @@ SOURCE_URL       = "https://api.hyperliquid.xyz"        # read whale from MAINNE
 # already-closed trades). Logging only covers trades opened while the bot runs.
 MY_WALLET        = "0x2a62f939cd2E36293c9e1ef73FdCA33daC8bcf95"
 
-PAPER_MODE       = True          # <- simulate (no money). Set False for real trading.
+PAPER_MODE       = True          # <- keep True: this process hosts the dashboard + LIVE engine + Smart Money
+PAPER_TRADING    = False         # paper copy-bot retired (we trade live now). The loop still hosts
+                                 # the server, the live engine, Smart Money and My-Account logging,
+                                 # but no longer simulates virtual whale-copy trades.
 PAPER_START      = 1000.0        # virtual starting capital for paper mode
 
 CAPITAL_FRACTION = 0.20
@@ -1466,19 +1469,25 @@ def run_paper():
     load_secrets()
     save_secrets()          # persist a stable dash token + ensure secrets.json exists from the first run
     loaded = load_paper()
-    if loaded:
+    if loaded and PAPER_TRADING:
         paper_normalize_tps_today()   # retro-fix today's take-profits that overshot +12% (idempotent)
+    if not PAPER_TRADING:
+        PAPER["pos"] = {}             # paper copy-bot retired -> drop any leftover simulated positions
     start_server()
     threading.Thread(target=start_tunnel, daemon=True).start()
     threading.Thread(target=run_smart, daemon=True).start()   # Smart-Money top-100 tracker (separate paper book)
     threading.Thread(target=run_live, daemon=True).start()    # LIVE real-money engine (OFF until enabled from dashboard)
-    tg("🤖 Copy-Bot in PAPER mode (simulated, no real money) · start $%.0f" % PAPER_START)
+    if PAPER_TRADING:
+        tg("🤖 Copy-Bot in PAPER mode (simulated, no real money) · start $%.0f" % PAPER_START)
+    else:
+        tg("🟢 Dashboard host up · Live engine + Smart Money active · paper copy-bot retired")
     print("\n>>> Dashboard:  http://<server-ip>/   (token: %s)\n" % DASH_TOKEN)
 
     if loaded:
         day_start_eq, day_start_cash, day = loaded
-        tg("💾 Previous paper state loaded · cash $%.2f · %d open position(s)"
-           % (PAPER["cash"], len(PAPER["pos"])))
+        if PAPER_TRADING:
+            tg("💾 Previous paper state loaded · cash $%.2f · %d open position(s)"
+               % (PAPER["cash"], len(PAPER["pos"])))
     else:
         day = datetime.datetime.now(datetime.timezone.utc).date()
         day_start_eq = PAPER_START
@@ -1523,7 +1532,8 @@ def run_paper():
                     eq = paper_equity(whale, mids)
                     publish_state(eq, day_start_eq, killed, whale, mids)
                     save_paper(day_start_eq, day_start_cash, day)
-                tg("👀 Watching from now — existing whale positions are NOT copied. Only NEW ones, confirmed %d× (open & close)." % CLOSE_CONFIRM)
+                if PAPER_TRADING:
+                    tg("👀 Watching from now — existing whale positions are NOT copied. Only NEW ones, confirmed %d× (open & close)." % CLOSE_CONFIRM)
                 time.sleep(POLL_SECONDS); continue
 
             events = []
@@ -1582,6 +1592,11 @@ def run_paper():
             if not killed and day_start_eq > 0 and realized_loss >= DAILY_LOSS_LIMIT * day_start_eq:
                 killed = True
                 tg("🛑 KILL-SWITCH: realized −%.0f%% today. No new trades." % (DAILY_LOSS_LIMIT * 100))
+
+            if not PAPER_TRADING:
+                # paper copy-bot retired — host keeps serving the dashboard + live/smart;
+                # no virtual adopt/opens below. (My-Account logging + publish already done above.)
+                time.sleep(POLL_SECONDS); continue
 
             # manual adoption: copy any currently-open whale position we don't hold yet,
             # entered at the whale's OWN entry (as if we'd opened it together with them).
