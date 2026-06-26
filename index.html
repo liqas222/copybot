@@ -502,7 +502,6 @@
       <nav class="navlist" id="navlist">
         <button class="navitem active" data-view="watch" data-title="Watchlist" data-sub="Tracked wallets &amp; their positions"><span class="ni-ic">🔭</span><span class="ni-tx">Watchlist</span></button>
         <button class="navitem" data-view="me" data-title="My Account" data-sub="Your live Hyperliquid wallet"><span class="ni-ic">👤</span><span class="ni-tx">My Account</span></button>
-        <button class="navitem" data-view="bot" data-title="Copy-Bot" data-sub="Paper account · live mirror"><span class="ni-ic">🤖</span><span class="ni-tx">Copy-Bot</span></button>
         <button class="navitem" data-view="smart" data-title="Smart Money" data-sub="Top-100 trader tracker · auto-copy"><span class="ni-ic">🧠</span><span class="ni-tx">Smart Money</span></button>
         <button class="navitem" data-view="live" data-title="Live Trading" data-sub="REAL money · echtes Geld"><span class="ni-ic">🔴</span><span class="ni-tx">Live Trading</span></button>
         <button class="navitem" data-view="markets" data-title="Markets" data-sub="Live Hyperliquid markets"><span class="ni-ic">📈</span><span class="ni-tx">Markets</span></button>
@@ -540,14 +539,6 @@
         <div class="kpi"><span class="kpilabel">Open Positions</span><span class="kpival num" id="kMyPos">—</span><span class="kpisub" id="kMyPosSub">—</span></div>
       </div>
       <div class="views">
-        <section class="view active" id="view-bot">
-          <div class="vgrid">
-            <section class="panel" id="botPortfolio"><header class="phead"><span class="wlabel">Copy-Bot</span><span class="botbadge off" id="botBadge">⚪</span></header><div class="state small">…</div></section>
-            <section class="panel" id="botPerf"><header class="phead"><span class="wlabel">Copy-Bot Performance</span></header><div class="state small">…</div></section>
-          </div>
-          <section class="panel" id="botPosWrap" style="display:none"></section>
-          <section class="panel" id="botClosed"><header class="phead"><span class="wlabel">Bot Closed Trades</span></header><div class="state small">…</div></section>
-        </section>
         <section class="view" id="view-me">
           <div class="vgrid">
             <section class="panel" id="myPortfolio"><header class="phead"><span class="wlabel">My Portfolio</span></header><div class="state small">Loading…</div></section>
@@ -627,7 +618,7 @@
             <section class="panel" id="liveClosed"><header class="phead"><span class="wlabel">Geschlossene Live-Trades</span></header><div class="state small">…</div></section>
           </div>
         </section>
-        <section class="view" id="view-watch">
+        <section class="view active" id="view-watch">
           <section class="panel" id="trackPanel">
             <header class="phead"><span class="wlabel">Tracked Wallets</span><span class="meta" id="trackCount"></span></header>
             <div class="pbody">
