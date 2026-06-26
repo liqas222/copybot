@@ -136,7 +136,10 @@
   .pgstat .pglbl { font-size: 10px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted); font-family: var(--mono); }
   .pgstat .num { font-size: 20px; font-weight: 700; }
   .pgchart { position: relative; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: rgba(168,85,247,.03); }
-  #pgCanvas, #rugCanvas { width: 100%; height: 240px; display: block; }
+  #pgCanvas, #rugCanvas, #moonCanvas { width: 100%; height: 240px; display: block; }
+  .pgbtn.moonbtn { background: rgba(255,255,255,.04); border: 1px solid var(--line); color: var(--text); font-size: 22px; padding: 18px 0; }
+  .pgbtn.moonbtn:hover:not(:disabled) { border-color: rgba(168,85,247,.5); box-shadow: 0 12px 30px -16px rgba(168,85,247,.6); }
+  .pgbtn.moonbtn.on, .pgbtn.long.on { filter: brightness(1.25); transform: translateY(2px); }
   .pgmsg { position: absolute; top: 12px; left: 0; right: 0; text-align: center; font-family: "Chakra Petch", var(--ui); font-weight: 700; font-size: 18px; letter-spacing: .5px; pointer-events: none; text-shadow: 0 2px 12px #000; }
   .pgmsg.ok { color: var(--long); } .pgmsg.err { color: var(--short); font-size: 20px; }
   .pgbtns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
@@ -583,6 +586,7 @@
             <button class="gametab active" data-game="pump" onclick="arcadePick('pump')">🎮 Pump or Dump</button>
             <button class="gametab" data-game="flip" onclick="arcadePick('flip')">🎲 Memecoin Flip</button>
             <button class="gametab" data-game="rug" onclick="arcadePick('rug')">💣 Rug Pull Roulette</button>
+            <button class="gametab" data-game="moon" onclick="arcadePick('moon')">🚀 Moon Lander</button>
           </div>
           <section class="panel arcadegame active" id="arcadePanel" data-game="pump">
             <header class="phead"><span class="wlabel">Pump or Dump</span><span class="meta">erreiche oben oder unten</span></header>
@@ -651,6 +655,25 @@
                 <button class="pgbtn long" id="rugCash" onclick="rugCash()" disabled>💰 CASH OUT</button>
               </div>
               <div class="setnote">Der Multiplikator steigt — <b>1.00×, 1.5×, 2×, 5×…</b> immer schneller. Cash out, bevor der zufällige <b>Rug Pull</b> zuschlägt und alles auf 0 setzt. Je länger du wartest, desto mehr Gewinn — aber auch mehr Risiko. Gecashte Multis landen im <b>Bag</b>. (Nur ein Spiel, kein echtes Geld.)</div>
+            </div>
+          </section>
+          <section class="panel arcadegame" id="moonPanel" data-game="moon">
+            <header class="phead"><span class="wlabel">Moon Lander</span><span class="meta">sanft auf die Plattform</span></header>
+            <div class="pbody">
+              <div class="pgstats">
+                <div class="pgstat"><span class="pglbl">Fuel</span><span class="num pos" id="moFuel">100%</span></div>
+                <div class="pgstat"><span class="pglbl">V-Speed</span><span class="num" id="moVy">0.0</span></div>
+                <div class="pgstat"><span class="pglbl">Best</span><span class="num" id="moBest">0</span></div>
+                <div class="pgstat"><span class="pglbl">Status</span><span class="num" id="moState">bereit</span></div>
+              </div>
+              <div class="pgchart"><canvas id="moonCanvas"></canvas><div class="pgmsg" id="moMsg"></div></div>
+              <div class="pgbtns" style="grid-template-columns:1fr 1.4fr 1fr">
+                <button class="pgbtn moonbtn" id="moLeft">◀</button>
+                <button class="pgbtn long" id="moThrust">🔥 SCHUB</button>
+                <button class="pgbtn moonbtn" id="moRight">▶</button>
+              </div>
+              <button class="btn" id="moRestart" style="display:none;width:100%;margin-top:10px" onclick="moonReset()">↻ Nochmal</button>
+              <div class="setnote">Die Schwerkraft zieht dich runter. Halte <b>🔥 SCHUB</b> (oder Leertaste / ↑) und nutze <b>◀ ▶</b> (Pfeiltasten), um sanft auf der grünen <b>To-the-Moon-Plattform</b> aufzusetzen. Zu schnell oder daneben → 💥. Treibstoff ist begrenzt — je mehr übrig & weicher die Landung, desto höher der Score.</div>
             </div>
           </section>
         </section>
@@ -2165,7 +2188,7 @@ function showView(name) {
   if (name === "finder" && !_lb && !finderRunning && typeof runFinder === "function") runFinder();
   if (typeof pgStop === "function") {
     if (name === "arcade") { let g = "pump"; try { g = localStorage.getItem("ccArcadeGame") || "pump"; } catch (e) {} setTimeout(() => arcadePick(g), 0); }
-    else { pgStop(); if (typeof flStop === "function") flStop(); if (typeof rugStop === "function") rugStop(); }
+    else { pgStop(); if (typeof flStop === "function") flStop(); if (typeof rugStop === "function") rugStop(); if (typeof moonStop === "function") moonStop(); }
   }
   if (name === "smart" && typeof scanRadarStart === "function") { setTimeout(scanRadarStart, 0); setTimeout(scanOctoStart, 0); }
 }
@@ -2569,15 +2592,140 @@ function rugBig(x, W, H, col) {
   x.textBaseline = "alphabetic";
 }
 
+/* ---------- Arcade: Moon Lander (gravity / soft-landing) ---------- */
+const MOON = { inited: false, best: 0, raf: 0, last: 0, phase: "idle", W: 0, H: 0,
+  x: 0, y: 0, vx: 0, vy: 0, fuel: 100, pad: 0, padW: 64, ground: 224, thrU: false, thrL: false, thrR: false,
+  stars: null, flame: 0, bound: false };
+const MOON_G = 26, MOON_TUP = 64, MOON_TLAT = 42, MOON_BURN_U = 19, MOON_BURN_L = 11, MOON_SAFE_VY = 34, MOON_SAFE_VX = 26;
+function moonResize(c) { const dpr = Math.min(window.devicePixelRatio || 1, 2); MOON.W = c.clientWidth || 600; MOON.H = 240; c.width = MOON.W * dpr; c.height = MOON.H * dpr; c.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0); }
+function moonSet(id, v, cls) { const e = document.getElementById(id); if (!e) return; e.textContent = v; if (cls !== undefined) e.className = "num " + cls; }
+function moonReset() {
+  if (!MOON.inited) { MOON.best = +(localStorage.getItem("moBest") || 0); moonBind(); MOON.inited = true; }
+  const c = document.getElementById("moonCanvas"); if (c) moonResize(c);
+  const W = MOON.W || 600;
+  MOON.x = _rnd(W * 0.2, W * 0.8); MOON.y = 26; MOON.vx = _rnd(-14, 14); MOON.vy = 0; MOON.fuel = 100;
+  MOON.pad = _rnd(40, W - 40 - MOON.padW); MOON.phase = "fly"; MOON.flame = 0;
+  MOON.thrU = MOON.thrL = MOON.thrR = false;
+  MOON.stars = Array.from({ length: 46 }, () => ({ x: _rnd(0, W), y: _rnd(0, MOON.ground - 10), r: _rnd(0.4, 1.4) }));
+  moonSet("moFuel", "100%", "pos"); moonSet("moVy", "0.0", ""); moonSet("moBest", MOON.best); moonSet("moState", "fliegt", "");
+  const m = document.getElementById("moMsg"); if (m) { m.textContent = ""; m.className = "pgmsg"; }
+  const rb = document.getElementById("moRestart"); if (rb) rb.style.display = "none";
+  ["moLeft", "moThrust", "moRight"].forEach((id) => { const b = document.getElementById(id); if (b) { b.disabled = false; b.classList.remove("on"); } });
+}
+function moonBind() {
+  if (MOON.bound) return; MOON.bound = true;
+  const hold = (id, key) => {
+    const b = document.getElementById(id); if (!b) return;
+    const on = (e) => { e.preventDefault(); if (MOON.phase === "fly") { MOON[key] = true; b.classList.add("on"); } };
+    const off = () => { MOON[key] = false; b.classList.remove("on"); };
+    b.addEventListener("pointerdown", on); b.addEventListener("pointerup", off);
+    b.addEventListener("pointerleave", off); b.addEventListener("pointercancel", off);
+  };
+  hold("moThrust", "thrU"); hold("moLeft", "thrL"); hold("moRight", "thrR");
+  window.addEventListener("pointerup", () => { MOON.thrU = MOON.thrL = MOON.thrR = false; ["moLeft", "moThrust", "moRight"].forEach((id) => { const b = document.getElementById(id); if (b) b.classList.remove("on"); }); });
+  document.addEventListener("keydown", (e) => {
+    const v = document.getElementById("view-arcade"), p = document.getElementById("moonPanel");
+    if (!v || !v.classList.contains("active") || !p || !p.classList.contains("active")) return;
+    if (e.key === " " || e.key === "ArrowUp") { MOON.thrU = true; e.preventDefault(); }
+    else if (e.key === "ArrowLeft") MOON.thrL = true;
+    else if (e.key === "ArrowRight") MOON.thrR = true;
+    if (MOON.phase !== "fly" && (e.key === " " || e.key === "Enter")) moonReset();
+  });
+  document.addEventListener("keyup", (e) => {
+    if (e.key === " " || e.key === "ArrowUp") MOON.thrU = false;
+    else if (e.key === "ArrowLeft") MOON.thrL = false;
+    else if (e.key === "ArrowRight") MOON.thrR = false;
+  });
+}
+function moonStart() { if (!MOON.inited || MOON.phase === "idle") moonReset(); if (!MOON.raf) { MOON.last = 0; MOON.raf = requestAnimationFrame(moonLoop); } }
+function moonStop() { if (MOON.raf) cancelAnimationFrame(MOON.raf); MOON.raf = 0; }
+function moonOpen() { moonStart(); }
+function moonLand() {
+  const onPad = MOON.x >= MOON.pad && MOON.x <= MOON.pad + MOON.padW;
+  const soft = Math.abs(MOON.vy) <= MOON_SAFE_VY && Math.abs(MOON.vx) <= MOON_SAFE_VX;
+  const m = document.getElementById("moMsg");
+  if (onPad && soft) {
+    MOON.phase = "landed";
+    const score = Math.round(MOON.fuel + (MOON_SAFE_VY - Math.abs(MOON.vy)) + (MOON_SAFE_VX - Math.abs(MOON.vx)));
+    if (score > MOON.best) { MOON.best = score; localStorage.setItem("moBest", score); moonSet("moBest", score); }
+    moonSet("moState", "gelandet", "pos");
+    if (m) { m.textContent = "🌕 TOUCHDOWN · +" + score; m.className = "pgmsg ok"; }
+  } else {
+    MOON.phase = "crashed";
+    moonSet("moState", onPad ? "zu hart" : "verfehlt", "neg");
+    if (m) { m.textContent = onPad ? "💥 zu schnell!" : "💥 Plattform verfehlt!"; m.className = "pgmsg err"; }
+  }
+  MOON.thrU = MOON.thrL = MOON.thrR = false;
+  ["moLeft", "moThrust", "moRight"].forEach((id) => { const b = document.getElementById(id); if (b) { b.disabled = true; b.classList.remove("on"); } });
+  const rb = document.getElementById("moRestart"); if (rb) rb.style.display = "block";
+}
+function moonLoop(ts) {
+  const c = document.getElementById("moonCanvas"), view = document.getElementById("view-arcade"), panel = document.getElementById("moonPanel");
+  if (!c || !view || !view.classList.contains("active") || !panel || !panel.classList.contains("active")) { MOON.raf = 0; return; }
+  if (c.clientWidth && MOON.W !== c.clientWidth) moonResize(c);
+  if (!MOON.W) moonResize(c);
+  const dt = MOON.last ? Math.min((ts - MOON.last) / 1000, 0.05) : 0.016; MOON.last = ts;
+  if (MOON.phase === "fly") {
+    let ay = MOON_G, ax = 0;
+    if (MOON.fuel > 0) {
+      if (MOON.thrU) { ay -= MOON_TUP; MOON.fuel -= MOON_BURN_U * dt; }
+      if (MOON.thrL) { ax -= MOON_TLAT; MOON.fuel -= MOON_BURN_L * dt; }
+      if (MOON.thrR) { ax += MOON_TLAT; MOON.fuel -= MOON_BURN_L * dt; }
+      if (MOON.fuel < 0) MOON.fuel = 0;
+    }
+    MOON.flame = MOON.thrU && MOON.fuel > 0 ? Math.min(1, MOON.flame + dt * 6) : Math.max(0, MOON.flame - dt * 8);
+    MOON.vy += ay * dt; MOON.vx += ax * dt; MOON.vx *= 0.998;
+    MOON.x += MOON.vx * dt; MOON.y += MOON.vy * dt;
+    if (MOON.x < 8) { MOON.x = 8; MOON.vx = Math.abs(MOON.vx) * 0.4; }
+    if (MOON.x > MOON.W - 8) { MOON.x = MOON.W - 8; MOON.vx = -Math.abs(MOON.vx) * 0.4; }
+    moonSet("moFuel", Math.round(MOON.fuel) + "%", MOON.fuel > 25 ? "pos" : MOON.fuel > 0 ? "" : "neg");
+    moonSet("moVy", (MOON.vy / 6).toFixed(1), Math.abs(MOON.vy) <= MOON_SAFE_VY ? "pos" : "neg");
+    if (MOON.y >= MOON.ground - 10) { MOON.y = MOON.ground - 10; moonLand(); }
+  }
+  moonDraw(c);
+  MOON.raf = requestAnimationFrame(moonLoop);
+}
+function moonDraw(c) {
+  const x = c.getContext("2d"), W = MOON.W, H = MOON.H, gy = MOON.ground;
+  const sky = x.createLinearGradient(0, 0, 0, H); sky.addColorStop(0, "#0a0612"); sky.addColorStop(1, "#150a24");
+  x.fillStyle = sky; x.fillRect(0, 0, W, H);
+  if (MOON.stars) { x.fillStyle = "rgba(255,255,255,.7)"; for (const s of MOON.stars) { x.globalAlpha = 0.3 + 0.7 * Math.abs(Math.sin(s.x + Date.now() / 900)); x.beginPath(); x.arc(s.x, s.y, s.r, 0, 7); x.fill(); } x.globalAlpha = 1; }
+  // ground + rocky terrain
+  x.fillStyle = "#1c1430"; x.fillRect(0, gy, W, H - gy);
+  x.strokeStyle = "rgba(168,85,247,.4)"; x.lineWidth = 2; x.beginPath();
+  for (let i = 0; i <= W; i += 16) { const onPad = i >= MOON.pad - 8 && i <= MOON.pad + MOON.padW + 8; const yy = onPad ? gy : gy + (((i * 7) % 11) - 5) * 0.8; i ? x.lineTo(i, yy) : x.moveTo(i, yy); } x.stroke();
+  // landing pad
+  x.fillStyle = "#16e08a"; x.shadowColor = "#16e08a"; x.shadowBlur = 14; x.fillRect(MOON.pad, gy - 3, MOON.padW, 4); x.shadowBlur = 0;
+  x.strokeStyle = "rgba(34,197,94,.5)"; x.setLineDash([4, 4]); x.beginPath(); x.moveTo(MOON.pad + MOON.padW / 2, gy - 3); x.lineTo(MOON.pad + MOON.padW / 2, gy - 60); x.stroke(); x.setLineDash([]);
+  x.fillStyle = "rgba(34,197,94,.8)"; x.font = "9px JetBrains Mono, monospace"; x.textAlign = "center"; x.fillText("TO THE MOON", MOON.pad + MOON.padW / 2, gy - 64);
+  // rocket
+  const rx = MOON.x, ry = MOON.y, crashed = MOON.phase === "crashed";
+  x.save(); x.translate(rx, ry);
+  if (crashed) { x.font = "26px sans-serif"; x.textAlign = "center"; x.fillText("💥", 0, 4); x.restore(); moonHud(x, W, H); return; }
+  if (MOON.flame > 0.05) { x.fillStyle = "rgba(245,180,80," + (0.5 + MOON.flame * 0.5) + ")"; x.beginPath(); x.moveTo(-4, 8); x.lineTo(4, 8); x.lineTo(0, 8 + 10 * MOON.flame + _rnd(0, 5)); x.closePath(); x.fill(); }
+  if (MOON.thrL && MOON.fuel > 0) { x.fillStyle = "rgba(245,180,80,.8)"; x.beginPath(); x.moveTo(5, 0); x.lineTo(5, 4); x.lineTo(12, 2); x.fill(); }
+  if (MOON.thrR && MOON.fuel > 0) { x.fillStyle = "rgba(245,180,80,.8)"; x.beginPath(); x.moveTo(-5, 0); x.lineTo(-5, 4); x.lineTo(-12, 2); x.fill(); }
+  x.fillStyle = "#e9e4f5"; x.beginPath(); x.moveTo(0, -10); x.lineTo(5, 4); x.lineTo(-5, 4); x.closePath(); x.fill();
+  x.fillStyle = "#a855f7"; x.beginPath(); x.arc(0, -2, 2.2, 0, 7); x.fill();
+  x.fillStyle = "#e9e4f5"; x.beginPath(); x.moveTo(5, 4); x.lineTo(8, 8); x.lineTo(5, 8); x.fill(); x.beginPath(); x.moveTo(-5, 4); x.lineTo(-8, 8); x.lineTo(-5, 8); x.fill();
+  x.restore();
+  moonHud(x, W, H);
+}
+function moonHud(x, W, H) {
+  if (MOON.phase === "fly") return;
+  x.fillStyle = "rgba(10,8,18,.45)"; x.fillRect(0, 0, W, H);
+}
+
 /* ---------- Arcade: switch between mini-games ---------- */
 function arcadePick(game) {
   document.querySelectorAll(".gametab").forEach((t) => t.classList.toggle("active", t.dataset.game === game));
   document.querySelectorAll(".arcadegame").forEach((p) => p.classList.toggle("active", p.dataset.game === game));
   try { localStorage.setItem("ccArcadeGame", game); } catch (e) {}
-  pgStop(); flStop(); rugStop();
+  pgStop(); flStop(); rugStop(); moonStop();
   if (game === "pump") pgOpen();
   else if (game === "flip") flOpen();
   else if (game === "rug") rugOpen();
+  else if (game === "moon") moonOpen();
 }
 
 /* ---------- Boredom screensaver: cycling animated scenes ---------- */
