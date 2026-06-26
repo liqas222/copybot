@@ -560,10 +560,8 @@
             </div>
           </div>
           <section class="panel" id="smartPos"><header class="phead"><span class="wlabel">Open Positions</span></header><div class="state small">…</div></section>
-          <div class="vgrid">
-            <section class="panel" id="smartTop"><header class="phead"><span class="wlabel">Tracked Top Traders</span></header><div class="state small">…</div></section>
-            <section class="panel" id="smartClosed"><header class="phead"><span class="wlabel">Closed Trades</span></header><div class="state small">…</div></section>
-          </div>
+          <section class="panel" id="smartTop"><header class="phead"><span class="wlabel">Tracked Top Traders</span></header><div class="state small">…</div></section>
+          <section class="panel" id="smartClosed"><header class="phead"><span class="wlabel">Closed Trades</span></header><div class="state small">…</div></section>
         </section>
         <section class="view" id="view-live">
           <div class="liverisk">⚠️ <b>Echtes Geld.</b> Diese Engine platziert echte Orders auf Hyperliquid Mainnet mit deinem Kapital — gleiche Regeln wie der Copy-Bot (1/5 Equity pro Trade · max 5 Positionen · TP pro Assetklasse · −25 % Tages-Kill-Switch · kein Stop-Loss). Sie ist standardmäßig <b>AUS</b> und tradet nur, solange du sie hier scharf schaltest.</div>
@@ -1938,7 +1936,7 @@ function renderSmartAux(sm) {
       const src = t.src
         ? `<a class="waddr srcfull" href="https://hypurrscan.io/address/${esc(t.src)}" target="_blank" rel="noopener">${t.src_name ? esc(t.src_name) + " · " : ""}${esc(t.src)}</a>`
         : `<span style="color:var(--muted)">${esc(t.src_name || "")}</span>`;
-      return `<div class="logrow"><span class="logt">${esc(t.side)} ${esc(t.coin)}</span> <span class="num ${w ? "pos" : "neg"}">${fmtSignedC(t.pnl)}</span> · ${((t.roe || 0) * 100).toFixed(0)}% · <span style="color:var(--muted)">${esc(t.reason || "")}</span><br>von ${src}</div>`;
+      return `<div class="logrow"><span class="logt">${esc(t.side)} ${esc(t.coin)}</span> <span class="num ${w ? "pos" : "neg"}">${fmtSignedC(t.pnl)}</span> · ${((t.roe || 0) * 100).toFixed(0)}% · <span style="color:var(--muted)">${esc(t.reason || "")}</span> · von ${src}</div>`;
     }).join("") || `<div class="state small">Noch keine geschlossenen Trades.</div>`;
     const st = sm.stats || {};
     const sumRoe = st.sum_roe || 0;
