@@ -136,7 +136,7 @@
   .pgstat .pglbl { font-size: 10px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted); font-family: var(--mono); }
   .pgstat .num { font-size: 20px; font-weight: 700; }
   .pgchart { position: relative; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: rgba(168,85,247,.03); }
-  #pgCanvas { width: 100%; height: 240px; display: block; }
+  #pgCanvas, #rugCanvas { width: 100%; height: 240px; display: block; }
   .pgmsg { position: absolute; top: 12px; left: 0; right: 0; text-align: center; font-family: "Chakra Petch", var(--ui); font-weight: 700; font-size: 18px; letter-spacing: .5px; pointer-events: none; text-shadow: 0 2px 12px #000; }
   .pgmsg.ok { color: var(--long); } .pgmsg.err { color: var(--short); font-size: 20px; }
   .pgbtns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
@@ -582,6 +582,7 @@
           <div class="gametabs">
             <button class="gametab active" data-game="pump" onclick="arcadePick('pump')">🎮 Pump or Dump</button>
             <button class="gametab" data-game="flip" onclick="arcadePick('flip')">🎲 Memecoin Flip</button>
+            <button class="gametab" data-game="rug" onclick="arcadePick('rug')">💣 Rug Pull Roulette</button>
           </div>
           <section class="panel arcadegame active" id="arcadePanel" data-game="pump">
             <header class="phead"><span class="wlabel">Pump or Dump</span><span class="meta">erreiche oben oder unten</span></header>
@@ -634,6 +635,22 @@
               </div>
               <button class="btn" id="flRestart" style="display:none;width:100%;margin-top:10px" onclick="flReset()">↻ Nochmal</button>
               <div class="setnote">Hat die <b>rechte</b> Memecoin eine höhere oder tiefere Market Cap als die linke? Richtig getippt → die rechte rückt nach links, eine neue erscheint, Streak wächst. Falsch → 💥 REKT. (Marktkapitalisierungen sind grobe Richtwerte, nur fürs Spiel.)</div>
+            </div>
+          </section>
+          <section class="panel arcadegame" id="rugPanel" data-game="rug">
+            <header class="phead"><span class="wlabel">Rug Pull Roulette</span><span class="meta">cash out bevor er ruggt</span></header>
+            <div class="pbody">
+              <div class="pgstats">
+                <div class="pgstat"><span class="pglbl">Bag</span><span class="num" id="rugBank">0.00×</span></div>
+                <div class="pgstat"><span class="pglbl">Best Cash</span><span class="num" id="rugBest">0.00×</span></div>
+                <div class="pgstat"><span class="pglbl">Multiplier</span><span class="num" id="rugMult">1.00×</span></div>
+                <div class="pgstat"><span class="pglbl">Status</span><span class="num" id="rugState">—</span></div>
+              </div>
+              <div class="pgchart"><canvas id="rugCanvas"></canvas><div class="pgmsg" id="rugMsg"></div></div>
+              <div class="pgbtns" style="grid-template-columns:1fr">
+                <button class="pgbtn long" id="rugCash" onclick="rugCash()" disabled>💰 CASH OUT</button>
+              </div>
+              <div class="setnote">Der Multiplikator steigt — <b>1.00×, 1.5×, 2×, 5×…</b> immer schneller. Cash out, bevor der zufällige <b>Rug Pull</b> zuschlägt und alles auf 0 setzt. Je länger du wartest, desto mehr Gewinn — aber auch mehr Risiko. Gecashte Multis landen im <b>Bag</b>. (Nur ein Spiel, kein echtes Geld.)</div>
             </div>
           </section>
         </section>
@@ -2148,7 +2165,7 @@ function showView(name) {
   if (name === "finder" && !_lb && !finderRunning && typeof runFinder === "function") runFinder();
   if (typeof pgStop === "function") {
     if (name === "arcade") { let g = "pump"; try { g = localStorage.getItem("ccArcadeGame") || "pump"; } catch (e) {} setTimeout(() => arcadePick(g), 0); }
-    else { pgStop(); if (typeof flStop === "function") flStop(); }
+    else { pgStop(); if (typeof flStop === "function") flStop(); if (typeof rugStop === "function") rugStop(); }
   }
   if (name === "smart" && typeof scanRadarStart === "function") { setTimeout(scanRadarStart, 0); setTimeout(scanOctoStart, 0); }
 }
@@ -2455,15 +2472,113 @@ function flFinish(correct) {
 }
 function flOpen() { if (!FLIP.inited || FLIP.cur === null) flReset(); }
 
+function flStop() { if (FLIP.anim) cancelAnimationFrame(FLIP.anim); FLIP.anim = 0; }
+
+/* ---------- Arcade: Rug Pull Roulette (crash / cash-out) ---------- */
+const RUG = { inited: false, bank: 0, best: 0, mult: 1, crashAt: 0, phase: "idle", raf: 0, last: 0, t: 0, wait: 0, hist: [], peakY: 2, W: 0, H: 0 };
+function rugResize(c) { const dpr = Math.min(window.devicePixelRatio || 1, 2); RUG.W = c.clientWidth || 600; RUG.H = 240; c.width = RUG.W * dpr; c.height = RUG.H * dpr; c.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0); }
+function rugSet(id, v, cls) { const e = document.getElementById(id); if (!e) return; e.textContent = v; if (cls !== undefined) e.className = "num " + cls; }
+function rugLaunch() {
+  RUG.phase = "wait"; RUG.wait = 1.4; RUG.mult = 1; RUG.t = 0; RUG.hist = []; RUG.peakY = 2;
+  const r = Math.random();
+  RUG.crashAt = Math.min(60, Math.max(1.0, 0.93 / (1 - r)));   // exponential-ish, house edge, capped 60×
+  const btn = document.getElementById("rugCash"); if (btn) btn.disabled = true;
+}
+function rugReset() {
+  if (!RUG.inited) { RUG.best = +(localStorage.getItem("rugBest") || 0); RUG.inited = true; }
+  RUG.bank = 0;
+  rugSet("rugBank", "0.00×"); rugSet("rugBest", RUG.best.toFixed(2) + "×");
+  const m = document.getElementById("rugMsg"); if (m) { m.textContent = ""; m.className = "pgmsg"; }
+  rugLaunch();
+}
+function rugCash() {
+  if (RUG.phase !== "flying") return;
+  RUG.bank += RUG.mult; RUG.phase = "cashed"; RUG.wait = 1.5;
+  if (RUG.mult > RUG.best) { RUG.best = RUG.mult; localStorage.setItem("rugBest", RUG.best.toFixed(4)); rugSet("rugBest", RUG.best.toFixed(2) + "×"); }
+  rugSet("rugBank", RUG.bank.toFixed(2) + "×");
+  rugSet("rugState", "secured", "num pos");
+  const m = document.getElementById("rugMsg"); if (m) { m.textContent = "💰 +" + RUG.mult.toFixed(2) + "× gesichert"; m.className = "pgmsg ok"; }
+  const btn = document.getElementById("rugCash"); if (btn) btn.disabled = true;
+}
+function rugStart() {
+  if (!RUG.inited || RUG.phase === "idle") rugReset();
+  if (!RUG.raf) { RUG.last = 0; RUG.raf = requestAnimationFrame(rugLoop); }
+}
+function rugStop() { if (RUG.raf) cancelAnimationFrame(RUG.raf); RUG.raf = 0; }
+function rugOpen() { rugStart(); }
+function rugLoop(ts) {
+  const c = document.getElementById("rugCanvas"), view = document.getElementById("view-arcade"), panel = document.getElementById("rugPanel");
+  if (!c || !view || !view.classList.contains("active") || !panel || !panel.classList.contains("active")) { RUG.raf = 0; return; }
+  if (c.clientWidth && RUG.W !== c.clientWidth) rugResize(c);
+  if (!RUG.W) rugResize(c);
+  const dt = RUG.last ? Math.min((ts - RUG.last) / 1000, 0.05) : 0.016; RUG.last = ts; RUG.t += dt;
+  if (RUG.phase === "wait") {
+    RUG.wait -= dt;
+    rugSet("rugState", "ready…", "num"); rugSet("rugMult", "1.00×");
+    const m = document.getElementById("rugMsg"); if (m && m.textContent.indexOf("gesichert") < 0 && m.textContent.indexOf("RUG") < 0) { m.textContent = "Start in " + Math.max(0, RUG.wait).toFixed(1) + "s"; m.className = "pgmsg"; }
+    if (RUG.wait <= 0) { RUG.phase = "flying"; RUG.hist = [{ t: 0, m: 1 }]; const m2 = document.getElementById("rugMsg"); if (m2) { m2.textContent = ""; m2.className = "pgmsg"; } const btn = document.getElementById("rugCash"); if (btn) btn.disabled = false; rugSet("rugState", "LIVE", "num pos"); }
+  } else if (RUG.phase === "flying") {
+    RUG.mult += RUG.mult * dt * (0.42 + RUG.mult * 0.018);   // accelerating exponential
+    RUG.hist.push({ t: RUG.t, m: RUG.mult });
+    if (RUG.hist.length > 600) RUG.hist.shift();
+    rugSet("rugMult", RUG.mult.toFixed(2) + "×");
+    if (RUG.mult >= RUG.crashAt) {
+      RUG.mult = RUG.crashAt; RUG.phase = "crashed"; RUG.wait = 2.0;
+      rugSet("rugState", "rugged", "num neg"); rugSet("rugMult", RUG.crashAt.toFixed(2) + "×");
+      const m = document.getElementById("rugMsg"); if (m) { m.textContent = "💥 RUG PULL @ " + RUG.crashAt.toFixed(2) + "×"; m.className = "pgmsg err"; }
+      const btn = document.getElementById("rugCash"); if (btn) btn.disabled = true;
+    }
+  } else if (RUG.phase === "cashed" || RUG.phase === "crashed") {
+    RUG.wait -= dt;
+    if (RUG.wait <= 0) rugLaunch();
+  }
+  rugDraw(c);
+  RUG.raf = requestAnimationFrame(rugLoop);
+}
+function rugDraw(c) {
+  const x = c.getContext("2d"), W = RUG.W, H = RUG.H, padL = 8, padB = 8, padT = 14;
+  x.clearRect(0, 0, W, H);
+  // grid
+  x.strokeStyle = "rgba(255,255,255,.05)"; x.lineWidth = 1;
+  for (let g = 0; g <= 4; g++) { const y = padT + (H - padT - padB) * g / 4; x.beginPath(); x.moveTo(0, y); x.lineTo(W, y); x.stroke(); }
+  const hist = RUG.hist; if (!hist.length) { rugBig(x, W, H); return; }
+  const tMax = Math.max(2.2, hist[hist.length - 1].t);
+  RUG.peakY = Math.max(RUG.peakY, hist[hist.length - 1].m, 1.6);
+  const crashed = RUG.phase === "crashed", cashed = RUG.phase === "cashed";
+  const col = crashed ? "#ff5a6e" : cashed ? "#f5c451" : "#16e08a";
+  const X = (t) => padL + (t / tMax) * (W - padL * 2);
+  const Y = (m) => padT + (1 - (Math.log(m) / Math.log(RUG.peakY * 1.05))) * (H - padT - padB);
+  // area
+  x.beginPath(); x.moveTo(X(0), H - padB);
+  for (const p of hist) x.lineTo(X(p.t), Y(p.m));
+  x.lineTo(X(hist[hist.length - 1].t), H - padB); x.closePath();
+  const grad = x.createLinearGradient(0, padT, 0, H); grad.addColorStop(0, col + "44"); grad.addColorStop(1, col + "05");
+  x.fillStyle = grad; x.fill();
+  // line
+  x.beginPath(); hist.forEach((p, i) => { const px = X(p.t), py = Y(p.m); i ? x.lineTo(px, py) : x.moveTo(px, py); });
+  x.strokeStyle = col; x.lineWidth = 2.6; x.lineCap = "round"; x.lineJoin = "round"; x.shadowColor = col; x.shadowBlur = 12; x.stroke(); x.shadowBlur = 0;
+  // tip marker
+  const tip = hist[hist.length - 1], tx = X(tip.t), ty = Y(tip.m);
+  if (crashed) { x.font = "26px Chakra Petch, sans-serif"; x.textAlign = "center"; x.fillText("💥", tx, ty); }
+  else { x.fillStyle = col; x.shadowColor = col; x.shadowBlur = 14; x.beginPath(); x.arc(tx, ty, 5, 0, 7); x.fill(); x.shadowBlur = 0; }
+  rugBig(x, W, H, col);
+}
+function rugBig(x, W, H, col) {
+  x.font = "800 44px Chakra Petch, sans-serif"; x.textAlign = "center"; x.textBaseline = "middle";
+  x.fillStyle = col || "#16e08a"; x.globalAlpha = .9; x.fillText(RUG.mult.toFixed(2) + "×", W / 2, H / 2); x.globalAlpha = 1;
+  x.textBaseline = "alphabetic";
+}
+
 /* ---------- Arcade: switch between mini-games ---------- */
 function arcadePick(game) {
   document.querySelectorAll(".gametab").forEach((t) => t.classList.toggle("active", t.dataset.game === game));
   document.querySelectorAll(".arcadegame").forEach((p) => p.classList.toggle("active", p.dataset.game === game));
   try { localStorage.setItem("ccArcadeGame", game); } catch (e) {}
-  if (game === "pump") { flStop && flStop(); pgOpen(); }
-  else { pgStop(); flOpen(); }
+  pgStop(); flStop(); rugStop();
+  if (game === "pump") pgOpen();
+  else if (game === "flip") flOpen();
+  else if (game === "rug") rugOpen();
 }
-function flStop() { if (FLIP.anim) cancelAnimationFrame(FLIP.anim); FLIP.anim = 0; }
 
 /* ---------- Boredom screensaver: cycling animated scenes ---------- */
 const CHILL = { on: false, raf: 0, last: 0, t: 0, scene: 0, sw: 0, W: 0, H: 0, c: null, x: null, st: null };
