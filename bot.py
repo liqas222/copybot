@@ -115,7 +115,7 @@ LIVE = {
     "killed": False,
     "started_ms": 0,
     "ex": None,              # hyperliquid Exchange instance
-    "owned": set(),          # keys (dex,bare) THIS engine opened -> only these are managed/closed
+    "owned": {},             # key (dex,bare) -> meta {side,entry,margin,sz,lev,opened_ms}; only these are managed/closed
     "pos": [],               # snapshot of current account positions (for the dashboard)
     "closed": [],            # closed-trade log (for the dashboard)
     "log": [],               # engine event log (for the dashboard)
@@ -1283,22 +1283,63 @@ def live_open(w, equity):
         except Exception as te:
             live_log("⚠️ TP-Order %s fehlgeschlagen: %s" % (w["bare"], te), "warn")
         with LOCK:
-            LIVE["owned"].add(w["key"])
-        live_log("✅ COPIED %s %s · size %.4f @ ~$%.4f · %d× %s · TP +%.0f%% ROE @ $%s"
-                 % (w["bare"], w["side"], sz, entry, lev,
-                    "Cross" if is_cross else "Isolated", tp_roe * 100, tp), "open")
+            LIVE["owned"][w["key"]] = {"coin": coin, "bare": w["bare"], "side": w["side"],
+                                       "entry": entry, "margin": round(margin, 2), "sz": sz,
+                                       "lev": lev, "opened_ms": int(time.time() * 1000)}
+        # OPEN notification — includes the margin you asked for
+        live_log("✅ OPEN %s %s · Margin $%.2f · %d× %s · Entry ~$%.4f · TP +%.0f%% ROE @ $%s"
+                 % (w["bare"], w["side"], margin, lev,
+                    "Cross" if is_cross else "Isolated", entry, tp_roe * 100, tp), "open")
     except Exception as e:
         live_log("❌ Fehler beim Öffnen %s: %s" % (w["bare"], e), "err")
+
+def live_fills_pnl(addr, bare, since_ms):
+    """Sum the realized closedPnl for `bare` from recent fills at/after since_ms.
+    Returns (pnl, found). Best-effort; used to report exact PnL on a close."""
+    try:
+        fills = hl_post(EXEC_URL, {"type": "userFills", "user": addr}) or []
+        tot = 0.0; found = False
+        for f in fills:
+            fb = f.get("coin", ""); fb = fb.split(":")[1] if ":" in fb else fb
+            if fb == bare and (f.get("time") or 0) >= since_ms - 3000:
+                cp = f.get("closedPnl")
+                if cp is not None:
+                    tot += float(cp); found = True
+        return tot, found
+    except Exception:
+        return 0.0, False
+
+def live_record_close(key, reason):
+    """Compute realized PnL + ROE% for a just-closed engine position, log it and send a
+    CLOSE notification with PnL and percent, then drop it from owned."""
+    meta = LIVE["owned"].get(key) or {}
+    bare = meta.get("bare", key[1]); side = meta.get("side", "")
+    margin = meta.get("margin", 0) or 0
+    pnl, found = live_fills_pnl(LIVE["addr"], bare, meta.get("opened_ms", 0))
+    roe = (pnl / margin) if (margin and found) else 0.0
+    with LOCK:
+        LIVE["owned"].pop(key, None)
+        LIVE["closed"].append({"coin": bare, "side": side, "pnl": round(pnl, 2),
+                               "roe": round(roe, 4), "reason": reason,
+                               "closed_ms": int(time.time() * 1000)})
+        if len(LIVE["closed"]) > 100:
+            del LIVE["closed"][:len(LIVE["closed"]) - 100]
+    if found:
+        live_log("🔻 CLOSE %s %s (%s) · PnL %s$%.2f · %s%.1f%%"
+                 % (side, bare, reason, "+" if pnl >= 0 else "-", abs(pnl),
+                    "+" if roe >= 0 else "-", abs(roe) * 100), "close")
+    else:
+        live_log("🔻 CLOSE %s %s (%s) · PnL wird von Hyperliquid abgerechnet" % (side, bare, reason), "close")
 
 def live_close(w, reason):
     ex = LIVE["ex"]
     if not ex:
         return
+    key = w["key"]
     try:
         ex.market_close(w["coin"])
-        with LOCK:
-            LIVE["owned"].discard(w["key"])
-        live_log("🔻 CLOSED %s (%s)" % (w["bare"], reason), "close")
+        time.sleep(1.2)                 # let the closing fill register so we can read its PnL
+        live_record_close(key, reason)
     except Exception as e:
         live_log("❌ Fehler beim Schließen %s: %s" % (w["bare"], e), "err")
 
@@ -1316,12 +1357,12 @@ def live_flatten():
     for key in list(LIVE["owned"]):
         p = pos.get(key)
         if not p:
-            with LOCK: LIVE["owned"].discard(key)
+            with LOCK: LIVE["owned"].pop(key, None)
             continue
         try:
             ex.market_close(p["coin"])
-            with LOCK: LIVE["owned"].discard(key)
-            live_log("🔻 CLOSED %s (panic)" % p["bare"], "close")
+            time.sleep(1.0)
+            live_record_close(key, "panic")
         except Exception as e:
             live_log("❌ Flatten %s: %s" % (p["bare"], e), "err")
 
@@ -1415,11 +1456,11 @@ def run_live():
                 live_log("👀 Beobachte ab jetzt — bestehende Whale-Positionen werden NICHT kopiert. Nur NEUE, %d× bestätigt." % OPEN_CONFIRM, "info")
                 live_publish(); time.sleep(POLL_SECONDS); continue
 
-            # reconcile: an engine-owned position that vanished closed via TP or by hand
+            # reconcile: an engine-owned position that vanished closed via TP (or by hand)
+            # -> report realized PnL + % (the take-profit fills on the exchange itself).
             for key in list(LIVE["owned"]):
                 if key not in livepos:
-                    with LOCK: LIVE["owned"].discard(key)
-                    live_log("🎯 %s geschlossen (TP/extern)." % key[1], "close")
+                    live_record_close(key, "take-profit")
 
             # confirmed whale-exit -> close OUR copy (only engine-owned keys)
             for key in list(known):

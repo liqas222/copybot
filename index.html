@@ -1670,7 +1670,7 @@ function renderLive(lv) {
   }
   const cl = document.getElementById("liveClosed");
   if (cl) {
-    const rows = (lv.closed || []).map((t) => { const w = (t.pnl || 0) >= 0; return `<div class="logrow"><span class="logt">${esc(t.side || "")} ${esc(t.coin || "")}</span> <span class="num ${w ? "pos" : "neg"}">${fmtSignedC(t.pnl)}</span> · <span style="color:var(--muted)">${esc(t.reason || "")}</span></div>`; }).join("") || `<div class="state small">Noch keine geschlossenen Live-Trades.</div>`;
+    const rows = (lv.closed || []).map((t) => { const w = (t.pnl || 0) >= 0; return `<div class="logrow"><span class="logt">${esc(t.side || "")} ${esc(t.coin || "")}</span> <span class="num ${w ? "pos" : "neg"}">${fmtSignedC(t.pnl)}</span> · <span class="num ${w ? "pos" : "neg"}">${((t.roe || 0) * 100).toFixed(1)}%</span> · <span style="color:var(--muted)">${esc(t.reason || "")}</span></div>`; }).join("") || `<div class="state small">Noch keine geschlossenen Live-Trades.</div>`;
     cl.innerHTML = `<header class="phead"><span class="wlabel">Geschlossene Live-Trades</span></header><div class="pbody"><div class="botlog tall">${rows}</div></div>`;
   }
 }
