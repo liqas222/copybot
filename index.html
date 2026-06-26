@@ -587,7 +587,7 @@
                 </div>
                 <div class="hero"><span class="herolabel">Account Value (live)</span><span class="heroval num" id="liveEquity">—</span></div>
                 <div class="statrow"><span>Tages-PnL</span><span class="num" id="liveDayPnl">—</span></div>
-                <div class="statrow"><span>Offene Positionen (vom Bot)</span><span class="num" id="liveOwned">—</span></div>
+                <div class="statrow"><span>Offene Positionen (gesamt)</span><span class="num" id="liveOwned">—</span></div>
                 <div class="statrow"><span>Kill-Switch</span><span class="num" id="liveKill">—</span></div>
                 <div class="statrow"><span>Account</span><span class="num" id="liveAddr">—</span></div>
                 <div class="liveerr" id="liveErr" style="display:none"></div>
@@ -1634,7 +1634,7 @@ function renderLive(lv) {
   const money = (id, v) => { const e = document.getElementById(id); if (!e) return; if (v == null) { e.textContent = "—"; return; } e.textContent = fmtSignedC(v); e.classList.toggle("pos", v >= 0); e.classList.toggle("neg", v < 0); };
   setT("liveEquity", lv.equity != null ? fmtUsdC(lv.equity) : "—");
   money("liveDayPnl", lv.equity != null ? (lv.day_pnl || 0) : null);
-  setT("liveOwned", (lv.owned != null ? lv.owned : 0) + " / " + (lv.max_positions || 5));
+  setT("liveOwned", (lv.open_total != null ? lv.open_total : 0) + " / " + (lv.max_positions || 5) + (lv.owned != null ? " · " + lv.owned + " vom Bot" : ""));
   setT("liveKill", lv.killed ? "🛑 ausgelöst" : "ok");
   setT("liveAddr", lv.addr ? smShort(lv.addr) : "—");
   setT("liveCap", lv.capital_pct != null ? lv.capital_pct + "% Equity" : "—");
