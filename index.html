@@ -329,6 +329,19 @@
   .panel { position: relative; background: linear-gradient(180deg, #11171f, var(--panel)); border: 1px solid var(--line); border-radius: 14px; margin-bottom: 16px; overflow: hidden;
     box-shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 18px 36px -28px #000; transition: border-color .2s, transform .2s; }
   .panel:hover { border-color: var(--line2); }
+  /* layout edit mode */
+  body.editmode .view.active .panel { resize: both; overflow: auto; outline: 2px dashed rgba(168,85,247,.6); outline-offset: 2px; min-height: 80px; min-width: 200px; }
+  body.editmode .view.active .panel.lay-drag { opacity: .4; }
+  body.editmode .view.active .panel.lay-over { outline-color: var(--long); outline-style: solid; }
+  .layedit { display: none; }
+  body.editmode .view.active .panel > .layedit { display: flex; position: absolute; top: 6px; right: 6px; z-index: 40; gap: 4px;
+    background: rgba(13,9,20,.85); border: 1px solid var(--line); border-radius: 8px; padding: 3px; backdrop-filter: blur(3px); }
+  .layedit button { width: 26px; height: 26px; border-radius: 6px; border: 1px solid var(--line); background: rgba(255,255,255,.04);
+    color: var(--text); font-size: 13px; cursor: pointer; line-height: 1; padding: 0; }
+  .layedit button:hover { border-color: var(--purple); background: rgba(168,85,247,.15); }
+  .layedit .lay-move { cursor: grab; }
+  .layedit .lay-del:hover { border-color: var(--short); background: rgba(246,70,93,.15); color: var(--short); }
+  .editbadge { font-family: var(--mono); font-size: 11px; color: var(--purple); margin-right: 8px; }
   .side .panel { margin-bottom: 16px; }
   .phead { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
            padding: 13px 16px; border-bottom: 1px solid var(--line); background: linear-gradient(180deg, rgba(255,255,255,.022), transparent); }
@@ -532,7 +545,7 @@
     <main class="content">
       <div class="topbar">
         <div class="tb-title"><h2 id="viewTitle">Copy-Bot</h2><span class="tb-sub" id="viewSub">Paper account · live mirror</span></div>
-        <div class="controls"><span id="updated">Loading…</span><button id="soundBtn" class="btn" type="button">🔕 Sound off</button></div>
+        <div class="controls"><span id="updated">Loading…</span><button id="editBtn" class="btn" type="button" title="Layout bearbeiten: Panels verschieben, vergrößern, löschen">✏️ Layout</button><button id="editReset" class="btn" type="button" style="display:none" onclick="layoutReset()">↺ Reset</button><button id="soundBtn" class="btn" type="button">🔕 Sound off</button></div>
       </div>
       <div class="ticker"><div class="ticktrack" id="ticktrack"><span class="tkloading">Loading live markets…</span></div></div>
       <div class="kpis" id="kpis">
@@ -3127,8 +3140,105 @@ function chillClose() {
   const ov = document.getElementById("chill"); if (ov) ov.classList.remove("on");
 }
 window.addEventListener("resize", () => { if (CHILL.on) chillResize(); });
+
+/* ---------- Layout editor: move / resize / delete every panel ---------- */
+const LAY_KEY = "ccLayoutV1";
+let LAYOUT = {}; try { LAYOUT = JSON.parse(localStorage.getItem(LAY_KEY) || "{}"); } catch (e) {}
+LAYOUT.sizes = LAYOUT.sizes || {}; LAYOUT.hidden = LAYOUT.hidden || []; LAYOUT.order = LAYOUT.order || {};
+let editMode = false, layBarTimer = 0, layDragEid = null;
+function layPanels() { return Array.from(document.querySelectorAll(".content .view .panel")); }
+function laySave() { try { localStorage.setItem(LAY_KEY, JSON.stringify(LAYOUT)); } catch (e) {} }
+function layAssignIds() {
+  let pc = 0, ec = 0;
+  layPanels().forEach((p) => {
+    if (!p.dataset.eid) p.dataset.eid = p.id || ("e" + (ec++));
+    const par = p.parentElement;
+    if (par && !par.dataset.pkey) par.dataset.pkey = "pk" + (pc++);
+  });
+}
+function layApply() {
+  layAssignIds();
+  layPanels().forEach((p) => {
+    const s = LAYOUT.sizes[p.dataset.eid];
+    if (s) { if (s.w) p.style.width = s.w; if (s.h) p.style.height = s.h; p.style.flex = "none"; }
+    p.style.display = LAYOUT.hidden.includes(p.dataset.eid) ? "none" : "";
+  });
+  Object.keys(LAYOUT.order).forEach((pk) => {
+    const par = document.querySelector('[data-pkey="' + pk + '"]'); if (!par) return;
+    LAYOUT.order[pk].forEach((eid) => { const el = document.querySelector('[data-eid="' + eid + '"]'); if (el) par.appendChild(el); });
+  });
+}
+function laySaveOrders() {
+  LAYOUT.order = {};
+  document.querySelectorAll(".content .view [data-pkey]").forEach((par) => {
+    const kids = Array.from(par.children).filter((c) => c.classList.contains("panel"));
+    if (kids.length) LAYOUT.order[par.dataset.pkey] = kids.map((p) => p.dataset.eid);
+  });
+  laySave();
+}
+function layStep(p, dir) {
+  const r = p.getBoundingClientRect();
+  p.style.width = Math.max(200, Math.round(r.width + dir * 70)) + "px";
+  p.style.height = Math.max(90, Math.round(r.height + dir * 70)) + "px";
+  p.style.flex = "none";
+  LAYOUT.sizes[p.dataset.eid] = { w: p.style.width, h: p.style.height }; laySave();
+}
+function layDelete(p) {
+  p.style.display = "none";
+  if (!LAYOUT.hidden.includes(p.dataset.eid)) LAYOUT.hidden.push(p.dataset.eid);
+  laySave();
+}
+function layCaptureSizes() {
+  layPanels().forEach((p) => {
+    if (p.style.width || p.style.height) LAYOUT.sizes[p.dataset.eid] = { w: p.style.width, h: p.style.height };
+  });
+  laySave();
+}
+function layEnsureBars() {
+  layPanels().forEach((p) => {
+    if (!p.dataset.layInit) {
+      p.dataset.layInit = "1";
+      p.addEventListener("dragover", (e) => { if (editMode) { e.preventDefault(); p.classList.add("lay-over"); } });
+      p.addEventListener("dragleave", () => p.classList.remove("lay-over"));
+      p.addEventListener("drop", (e) => {
+        if (!editMode) return; e.preventDefault(); p.classList.remove("lay-over");
+        const dragged = document.querySelector('[data-eid="' + layDragEid + '"]');
+        if (!dragged || dragged === p) return;
+        p.parentElement.insertBefore(dragged, p); laySaveOrders();
+      });
+    }
+    if (!p.querySelector(":scope > .layedit")) {     // re-inject (render() wipes innerHTML)
+      const bar = document.createElement("div"); bar.className = "layedit";
+      bar.innerHTML = '<button class="lay-move" draggable="true" title="Verschieben">⠿</button>' +
+        '<button class="lay-sm" title="Kleiner">–</button><button class="lay-lg" title="Größer">+</button>' +
+        '<button class="lay-del" title="Löschen">✕</button>';
+      p.appendChild(bar);
+      bar.querySelector(".lay-del").onclick = (e) => { e.stopPropagation(); layDelete(p); };
+      bar.querySelector(".lay-sm").onclick = (e) => { e.stopPropagation(); layStep(p, -1); };
+      bar.querySelector(".lay-lg").onclick = (e) => { e.stopPropagation(); layStep(p, 1); };
+      const mv = bar.querySelector(".lay-move");
+      mv.addEventListener("dragstart", (e) => { layDragEid = p.dataset.eid; e.dataTransfer.effectAllowed = "move"; p.classList.add("lay-drag"); });
+      mv.addEventListener("dragend", () => { p.classList.remove("lay-drag"); document.querySelectorAll(".lay-over").forEach((x) => x.classList.remove("lay-over")); });
+    }
+  });
+}
+function layToggle() {
+  editMode = !editMode;
+  document.body.classList.toggle("editmode", editMode);
+  const rb = document.getElementById("editReset"); if (rb) rb.style.display = editMode ? "" : "none";
+  const btn = document.getElementById("editBtn"); if (btn) btn.textContent = editMode ? "✓ Fertig" : "✏️ Layout";
+  if (editMode) { layAssignIds(); layEnsureBars(); layBarTimer = setInterval(layEnsureBars, 700); }
+  else { clearInterval(layBarTimer); layBarTimer = 0; layCaptureSizes(); document.querySelectorAll(".layedit").forEach((b) => b.remove()); }
+}
+function layoutReset() {
+  if (!confirm("Layout zurücksetzen? Alle verschobenen / vergrößerten / gelöschten Panels kommen zurück.")) return;
+  LAYOUT = { sizes: {}, hidden: [], order: {} }; laySave(); location.reload();
+}
+
 function init() {
   const b = document.getElementById("soundBtn"); if (b) b.addEventListener("click", toggleSound);
+  const eb = document.getElementById("editBtn"); if (eb) eb.addEventListener("click", layToggle);
+  try { layApply(); } catch (e) { console.warn("layApply", e); }
   initNav();
   document.querySelectorAll("#fndWindow .rbtn").forEach((btn) => btn.addEventListener("click", () => {
     finderWindow = btn.dataset.w;
