@@ -29,15 +29,20 @@ bot.get_unified_value = lambda base, addr: ST["equity"]
 _real_hl = bot.hl_post
 bot.hl_post = lambda base, body, timeout=10: ST["fills"] if body.get("type") == "userFills" else {}
 
+OK_RESP = {"status": "ok", "response": {"type": "order", "data": {"statuses": [{"filled": {"avgPx": "100", "totalSz": "1", "oid": 1}}]}}}
+ERR_RESP = {"status": "err", "response": "Order rejected: agent not approved"}
+
 class FakeEx:
-    def __init__(self, addr): self.account_address = addr; self.calls = []
-    def update_leverage(self, lev, coin, is_cross): self.calls.append(("lev", lev, coin, is_cross))
+    def __init__(self, addr): self.account_address = addr; self.calls = []; self.reject = False
+    def update_leverage(self, lev, coin, is_cross): self.calls.append(("lev", lev, coin, is_cross)); return {"status": "ok", "response": {"type": "default"}}
     def market_open(self, coin, is_buy, sz):
         self.calls.append(("open", coin, is_buy, sz))
+        if self.reject: return ERR_RESP
         ST["ex_pos"][("", coin)] = makepos("", coin, "LONG" if is_buy else "SHORT", ST["entry"], ST["entry"])
+        return OK_RESP
     def market_close(self, coin):
-        self.calls.append(("close", coin)); ST["ex_pos"].pop(("", coin), None)
-    def order(self, *a, **k): self.calls.append(("order",) + a)
+        self.calls.append(("close", coin)); ST["ex_pos"].pop(("", coin), None); return OK_RESP
+    def order(self, *a, **k): self.calls.append(("order",) + a); return OK_RESP
 
 FAILS = []
 def check(name, cond):
@@ -199,6 +204,17 @@ ST["whale_pos"][("", "ETH")] = makepos("", "ETH", "LONG", 100.0, 100.0)
 ticks(ctx, 5)
 check("nothing opened while disabled", len(bot.LIVE["owned"]) == 0)
 check("no market_open while disabled", not any(c[0] == "open" for c in ex.calls))
+
+# ---------------------------------------------------------------- 11: rejected order is NOT 'opened'
+print("\n[11] A rejected exchange order is NOT reported as open (the real bug)")
+ex, ctx = reset(equity=1000.0)
+ex.reject = True                                 # exchange rejects every order
+ticks(ctx, 1)
+ST["whale_pos"][("", "XRP")] = makepos("", "XRP", "LONG", 100.0, 100.0)
+ticks(ctx, 2)
+check("rejected order NOT marked owned", ("", "XRP") not in bot.LIVE["owned"])
+check("no false OPEN notification", "✅ OPEN XRP" not in logs())
+check("real rejection error surfaced", "ABGELEHNT" in logs())
 
 print("\n================ RESULT ================")
 if FAILS:

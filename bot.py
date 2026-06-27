@@ -1301,6 +1301,28 @@ def live_init():
 def live_lev():
     return max(1, min(FIXED_LEV, int(LIVE["max_lev"])))
 
+def live_resp_error(resp):
+    """Inspect a Hyperliquid SDK response and return an error string if the order did NOT
+    succeed, else None. The SDK does NOT raise on a rejected order — it returns
+    {'status':'err',...} or {'status':'ok', response:{data:{statuses:[{'error':...}]}}}.
+    Without this the bot would log '✅ OPEN' even when the exchange rejected the order."""
+    try:
+        if resp is None:
+            return "keine Antwort vom Exchange"
+        if isinstance(resp, str):
+            return resp if resp.lower().startswith("err") else None
+        if isinstance(resp, dict):
+            if resp.get("status") == "err":
+                return str(resp.get("response"))
+            data = resp.get("response")
+            if isinstance(data, dict):
+                for s in (((data.get("data") or {}).get("statuses")) or []):
+                    if isinstance(s, dict) and s.get("error"):
+                        return str(s["error"])
+        return None
+    except Exception:
+        return None
+
 def live_open(w, equity):
     """Open ONE real copy of a whale position. Mirrors open_copy but leverage-capped
     and logged into the live engine. Records the key as engine-owned."""
@@ -1318,17 +1340,30 @@ def live_open(w, equity):
     if sz <= 0:
         live_log("⏭️ %s übersprungen — Größe 0 (zu wenig Kapital?)" % w["bare"], "skip"); return
     try:
-        ex.update_leverage(lev, coin, is_cross)
-        ex.market_open(coin, is_buy, sz)
+        lres = ex.update_leverage(lev, coin, is_cross)
+        lerr = live_resp_error(lres)
+        if lerr:
+            live_log("⚠️ Leverage %s: %s" % (w["bare"], lerr), "warn")
+        res = ex.market_open(coin, is_buy, sz)
+        err = live_resp_error(res)
+        if err:
+            # The exchange REJECTED the order — do NOT pretend we opened it.
+            live_log("❌ Order %s ABGELEHNT von Hyperliquid: %s" % (w["bare"], err), "err"); return
         time.sleep(1.0)
         mine = get_positions(EXEC_URL, ex.account_address).get(w["key"])
-        entry = mine["entry"] if mine else mark
+        if not mine:
+            # No position showed up after a supposed fill -> treat as not opened, surface it.
+            live_log("⚠️ %s: keine Position nach Order sichtbar — nicht als offen gewertet." % w["bare"], "warn"); return
+        entry = mine["entry"] or mark
         tp_roe = SET["tp_stock"] if w["dex"] else SET["tp_crypto"]
         move = tp_roe / lev
         tp = round_px(entry * (1 + move) if is_buy else entry * (1 - move))
         try:
-            ex.order(coin, (not is_buy), sz, tp,
-                     {"trigger": {"triggerPx": tp, "isMarket": True, "tpsl": "tp"}}, reduce_only=True)
+            tres = ex.order(coin, (not is_buy), sz, tp,
+                            {"trigger": {"triggerPx": tp, "isMarket": True, "tpsl": "tp"}}, reduce_only=True)
+            terr = live_resp_error(tres)
+            if terr:
+                live_log("⚠️ TP-Order %s nicht gesetzt: %s" % (w["bare"], terr), "warn")
         except Exception as te:
             live_log("⚠️ TP-Order %s fehlgeschlagen: %s" % (w["bare"], te), "warn")
         with LOCK:
