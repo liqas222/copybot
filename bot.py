@@ -1441,128 +1441,137 @@ def live_publish():
             "closed": LIVE["closed"][-40:][::-1], "log": LIVE["log"][-50:][::-1],
         }
 
+def live_tick(ctx):
+    """One poll of the live engine. Returns how many seconds to sleep before the next
+    tick. All cross-poll state lives in `ctx` so this is unit-testable in isolation."""
+    if not LIVE["enabled"]:
+        if ctx["was_enabled"]:
+            live_log("⏸ Engine deaktiviert — keine neuen Trades (offene Positionen laufen weiter).", "warn")
+            ctx["was_enabled"] = False
+        LIVE["ready"] = LIVE["ready"] and bool(LIVE["ex"])
+        live_publish(); return 2
+    if not LIVE["ready"]:
+        ok, _ = live_init()
+        if not ok:
+            live_publish(); return 5
+        ctx["announced"] = False; ctx["known"] = set(); ctx["based"] = set(); ctx["miss"] = {}; ctx["openseen"] = {}
+    if not ctx["was_enabled"]:
+        ctx["was_enabled"] = True; LIVE["started_ms"] = int(time.time() * 1000)
+        ctx["day"] = datetime.datetime.now(datetime.timezone.utc).date()
+        LIVE["day_start_eq"] = get_unified_value(EXEC_URL, LIVE["addr"]); LIVE["killed"] = False
+        live_log("🟢 Engine AKTIV auf %s · Equity $%.2f · %d× · %.0f%%/Trade · max %d Pos."
+                 % (LIVE["net"], LIVE["day_start_eq"], live_lev(), CAPITAL_FRACTION * 100, MAX_POSITIONS), "on")
+
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    if today != ctx["day"]:
+        ctx["day"] = today; LIVE["day_start_eq"] = get_unified_value(EXEC_URL, LIVE["addr"]); LIVE["killed"] = False
+        live_log("🌅 Neuer Tag — Kill-Switch zurückgesetzt.", "info")
+
+    # One unified Portfolio Value (collateral + unrealized PnL), matches the HL UI.
+    # Sizing, kill-switch and headline all use this single number.
+    equity = get_unified_value(EXEC_URL, LIVE["addr"])
+    LIVE["equity"] = equity; LIVE["perp_equity"] = equity; LIVE["spot_equity"] = 0.0
+    if LIVE["killswitch"]:
+        if not LIVE["killed"] and LIVE["day_start_eq"] > 0 and equity <= LIVE["day_start_eq"] * (1 - DAILY_LOSS_LIMIT):
+            LIVE["killed"] = True
+            live_log("🛑 KILL-SWITCH: −%.0f%% heute. Keine neuen Trades." % (DAILY_LOSS_LIMIT * 100), "kill")
+    elif LIVE["killed"]:
+        LIVE["killed"] = False   # switched off -> lift any active halt
+
+    whale, okdex = get_positions_ex(SOURCE_URL, WHALE)
+    if COIN_WHITELIST is not None:
+        whale = {k: v for k, v in whale.items() if v["bare"] in COIN_WHITELIST}
+    livepos, okexec = get_positions_ex(EXEC_URL, LIVE["addr"])   # okexec = our dexes read OK
+
+    known = ctx["known"]; based = ctx["based"]; miss = ctx["miss"]; openseen = ctx["openseen"]; close_miss = ctx["close_miss"]
+
+    # establish baseline: existing whale positions are NOT copied
+    new_dex = okdex - based
+    if new_dex:
+        for k in whale:
+            if k[0] in new_dex:
+                known.add(k)
+        based |= new_dex
+    if not ctx["announced"]:
+        ctx["announced"] = True
+        live_log("👀 Beobachte ab jetzt — bestehende Whale-Positionen werden NICHT kopiert. Nur NEUE, über %d Polls bestätigt (Anti-Flicker, KEIN Hebel)." % OPEN_CONFIRM, "info")
+        live_publish(); return POLL_SECONDS
+
+    # reconcile: an engine-owned position closed via TP (or by hand). Only act when
+    # the position's OWN dex was actually read this poll AND it's been absent for
+    # CLOSE_CONFIRM consecutive polls — otherwise a propagation delay or a single
+    # failed read would falsely report a close (e.g. open + instant "take-profit").
+    for key in list(LIVE["owned"]):
+        if key in livepos:
+            close_miss[key] = 0
+        elif key[0] in okexec:
+            close_miss[key] = close_miss.get(key, 0) + 1
+            if close_miss[key] >= CLOSE_CONFIRM:
+                close_miss.pop(key, None)
+                live_record_close(key, "take-profit")
+        # else: that dex wasn't read this poll -> unknown, leave the position alone
+
+    # whale-exit: we do NOT close our copy when the whale closes — our positions
+    # are managed ONLY by their own take-profit / liquidation. We just stop tracking
+    # the key so a later whale re-open of the same coin can be copied again.
+    for key in list(known):
+        if key in whale:
+            miss[key] = 0
+        elif key[0] in okdex:
+            miss[key] = miss.get(key, 0) + 1
+            if miss[key] >= CLOSE_CONFIRM:
+                known.discard(key); miss.pop(key, None)
+
+    # Builder-dex (HIP-3) perps like stock perps on 'xyz' can't be placed via the
+    # standard SDK call -> skip them cleanly (no error spam) instead of crashing.
+    for k in list(whale):
+        if k[0] != "" and k[0] in okdex and k not in known:
+            known.add(k)
+            live_note("⏭️ %s (Builder-Dex '%s') — Stock-/Builder-Perps werden live nicht gehandelt" % (k[1], k[0]), "skip")
+
+    # confirmed NEW opens -> copy with real orders (MAIN perp dex only)
+    cand = set(k for k in whale if k[0] == "" and "" in okdex and k not in known)
+    for k in list(openseen):
+        if k not in cand:
+            openseen.pop(k, None)
+    for key in cand:
+        openseen[key] = openseen.get(key, 0) + 1
+    for key in list(cand):
+        if openseen.get(key, 0) < OPEN_CONFIRM:
+            continue
+        openseen.pop(key, None); known.add(key)
+        if key in LIVE["owned"]:
+            continue
+        if LIVE["killed"]:
+            live_log("⏭️ %s übersprungen — Kill-Switch." % whale[key]["bare"], "skip"); continue
+        # account-wide cap: ALL open positions (your manual ones + the bot's)
+        # count against the 5 — re-read live to stay current within this poll.
+        try:    open_total = len(get_positions(EXEC_URL, LIVE["addr"]))
+        except Exception: open_total = len(livepos)
+        if open_total >= MAX_POSITIONS:
+            live_log("⏭️ %s übersprungen — %d/%d Slots belegt (inkl. deiner manuellen Trades)."
+                     % (whale[key]["bare"], open_total, MAX_POSITIONS), "skip"); continue
+        live_open(whale[key], equity)   # unified account: full collateral backs margin
+
+    live_publish()
+    return POLL_SECONDS
+
 def run_live():
     """Daemon loop. Idle while disabled; when enabled, mirror the whale with REAL
     orders using the same open/close confirmation as the paper engine."""
     live_load_config()
     live_load_state()   # restore engine-owned positions + closed log across restarts
-    known = set(); based = set(); miss = {}; openseen = {}; close_miss = {}
-    announced = False; was_enabled = False; day = None; last_pub = 0
+    ctx = {"known": set(), "based": set(), "miss": {}, "openseen": {}, "close_miss": {},
+           "announced": False, "was_enabled": False, "day": None}
     while True:
         try:
-            if not LIVE["enabled"]:
-                if was_enabled:
-                    live_log("⏸ Engine deaktiviert — keine neuen Trades (offene Positionen laufen weiter).", "warn")
-                    was_enabled = False
-                LIVE["ready"] = LIVE["ready"] and bool(LIVE["ex"])
-                live_publish(); time.sleep(2); continue
-            if not LIVE["ready"]:
-                ok, _ = live_init()
-                if not ok:
-                    live_publish(); time.sleep(5); continue
-                announced = False; known = set(); based = set(); miss = {}; openseen = {}
-            if not was_enabled:
-                was_enabled = True; LIVE["started_ms"] = int(time.time() * 1000)
-                day = datetime.datetime.now(datetime.timezone.utc).date()
-                LIVE["day_start_eq"] = get_unified_value(EXEC_URL, LIVE["addr"]); LIVE["killed"] = False
-                live_log("🟢 Engine AKTIV auf %s · Equity $%.2f · %d× · %.0f%%/Trade · max %d Pos."
-                         % (LIVE["net"], LIVE["day_start_eq"], live_lev(), CAPITAL_FRACTION * 100, MAX_POSITIONS), "on")
-
-            today = datetime.datetime.now(datetime.timezone.utc).date()
-            if today != day:
-                day = today; LIVE["day_start_eq"] = get_unified_value(EXEC_URL, LIVE["addr"]); LIVE["killed"] = False
-                live_log("🌅 Neuer Tag — Kill-Switch zurückgesetzt.", "info")
-
-            # One unified Portfolio Value (collateral + unrealized PnL), matches the HL UI.
-            # Sizing, kill-switch and headline all use this single number.
-            equity = get_unified_value(EXEC_URL, LIVE["addr"])
-            LIVE["equity"] = equity; LIVE["perp_equity"] = equity; LIVE["spot_equity"] = 0.0
-            if LIVE["killswitch"]:
-                if not LIVE["killed"] and LIVE["day_start_eq"] > 0 and equity <= LIVE["day_start_eq"] * (1 - DAILY_LOSS_LIMIT):
-                    LIVE["killed"] = True
-                    live_log("🛑 KILL-SWITCH: −%.0f%% heute. Keine neuen Trades." % (DAILY_LOSS_LIMIT * 100), "kill")
-            elif LIVE["killed"]:
-                LIVE["killed"] = False   # switched off -> lift any active halt
-
-            whale, okdex = get_positions_ex(SOURCE_URL, WHALE)
-            if COIN_WHITELIST is not None:
-                whale = {k: v for k, v in whale.items() if v["bare"] in COIN_WHITELIST}
-            livepos, okexec = get_positions_ex(EXEC_URL, LIVE["addr"])   # okexec = our dexes read OK
-
-            # establish baseline: existing whale positions are NOT copied
-            new_dex = okdex - based
-            if new_dex:
-                for k in whale:
-                    if k[0] in new_dex:
-                        known.add(k)
-                based |= new_dex
-            if not announced:
-                announced = True
-                live_log("👀 Beobachte ab jetzt — bestehende Whale-Positionen werden NICHT kopiert. Nur NEUE, über %d Polls bestätigt (Anti-Flicker, KEIN Hebel)." % OPEN_CONFIRM, "info")
-                live_publish(); time.sleep(POLL_SECONDS); continue
-
-            # reconcile: an engine-owned position closed via TP (or by hand). Only act when
-            # the position's OWN dex was actually read this poll AND it's been absent for
-            # CLOSE_CONFIRM consecutive polls — otherwise a propagation delay or a single
-            # failed read would falsely report a close (e.g. open + instant "take-profit").
-            for key in list(LIVE["owned"]):
-                if key in livepos:
-                    close_miss[key] = 0
-                elif key[0] in okexec:
-                    close_miss[key] = close_miss.get(key, 0) + 1
-                    if close_miss[key] >= CLOSE_CONFIRM:
-                        close_miss.pop(key, None)
-                        live_record_close(key, "take-profit")
-                # else: that dex wasn't read this poll -> unknown, leave the position alone
-
-            # whale-exit: we do NOT close our copy when the whale closes — our positions
-            # are managed ONLY by their own take-profit / liquidation. We just stop tracking
-            # the key so a later whale re-open of the same coin can be copied again.
-            for key in list(known):
-                if key in whale:
-                    miss[key] = 0
-                elif key[0] in okdex:
-                    miss[key] = miss.get(key, 0) + 1
-                    if miss[key] >= CLOSE_CONFIRM:
-                        known.discard(key); miss.pop(key, None)
-
-            # Builder-dex (HIP-3) perps like stock perps on 'xyz' can't be placed via the
-            # standard SDK call -> skip them cleanly (no error spam) instead of crashing.
-            for k in list(whale):
-                if k[0] != "" and k[0] in okdex and k not in known:
-                    known.add(k)
-                    live_note("⏭️ %s (Builder-Dex '%s') — Stock-/Builder-Perps werden live nicht gehandelt" % (k[1], k[0]), "skip")
-
-            # confirmed NEW opens -> copy with real orders (MAIN perp dex only)
-            cand = set(k for k in whale if k[0] == "" and "" in okdex and k not in known)
-            for k in list(openseen):
-                if k not in cand:
-                    openseen.pop(k, None)
-            for key in cand:
-                openseen[key] = openseen.get(key, 0) + 1
-            for key in list(cand):
-                if openseen.get(key, 0) < OPEN_CONFIRM:
-                    continue
-                openseen.pop(key, None); known.add(key)
-                if key in LIVE["owned"]:
-                    continue
-                if LIVE["killed"]:
-                    live_log("⏭️ %s übersprungen — Kill-Switch." % whale[key]["bare"], "skip"); continue
-                # account-wide cap: ALL open positions (your manual ones + the bot's)
-                # count against the 5 — re-read live to stay current within this poll.
-                try:    open_total = len(get_positions(EXEC_URL, LIVE["addr"]))
-                except Exception: open_total = len(livepos)
-                if open_total >= MAX_POSITIONS:
-                    live_log("⏭️ %s übersprungen — %d/%d Slots belegt (inkl. deiner manuellen Trades)."
-                             % (whale[key]["bare"], open_total, MAX_POSITIONS), "skip"); continue
-                live_open(whale[key], equity)   # unified account: full collateral backs margin
-
-            live_publish()
+            slp = live_tick(ctx)
         except Exception as e:
             LIVE["err"] = str(e); print("live loop error:", e)
             try: live_publish()
             except Exception: pass
-        time.sleep(POLL_SECONDS)
+            slp = POLL_SECONDS
+        time.sleep(slp)
 
 
 def run_paper():
