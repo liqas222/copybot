@@ -348,6 +348,19 @@ def round_px(px):
 def my_leverage(whale_lev, mode):
     return FIXED_LEV          # fixed leverage on every trade, regardless of the whale's
 
+def scaled_tp(base_tp, trader_lev, our_lev):
+    """We trade a fixed leverage (6x). If the source trader uses LOWER leverage than us,
+    our position is more aggressive than theirs -> scale the take-profit DOWN proportionally
+    so we exit at a smaller price move and don't out-risk them. Example: base 12% TP at 6x,
+    trader at 3x -> TP 6%. Never scales the TP up (trader >= our leverage keeps base TP)."""
+    try:
+        tl = float(trader_lev or 0); ol = float(our_lev or 0)
+        if tl > 0 and ol > 0 and tl < ol:
+            return round(base_tp * (tl / ol), 4)
+    except Exception:
+        pass
+    return base_tp
+
 
 # ---------------- paper helpers ----------------
 def _mk(key, p, whale, mids):
@@ -1059,12 +1072,13 @@ def smart_consider(coin, w, tr, mids):
         eq = smart_equity(mids)
         margin = eq * SMART_FRAC
         sz = (margin * SMART_LEV) / entry
+        tp = scaled_tp(SMART_TP, w.get("lev"), SMART_LEV)   # smaller TP if the trader's leverage < ours
         SMART["pos"][coin] = {"coin": coin, "side": w["side"], "entry": entry, "lev": SMART_LEV,
-            "margin": margin, "sz": sz, "tp": SMART_TP, "src": tr["addr"], "src_name": nm,
+            "margin": margin, "sz": sz, "tp": tp, "src": tr["addr"], "src_name": nm,
             "opened_ms": int(time.time() * 1000), "opened": now_hms(), "peak_roe": 0.0}
-    smart_log("✅ KOPIERT %s %s · %s · WR %.0f%%" % (coin, w["side"], nm, tr["wr"]), "copy")
-    tg("🧠 SMART ✅ COPIED %s %s · von %s · WR %.0f%% · margin $%.2f · 6x · TP +12%%"
-       % (coin, w["side"], nm, tr["wr"], margin))
+    smart_log("✅ KOPIERT %s %s · %s · WR %.0f%% · TP +%.0f%%" % (coin, w["side"], nm, tr["wr"], tp * 100), "copy")
+    tg("🧠 SMART ✅ COPIED %s %s · von %s · WR %.0f%% · margin $%.2f · %d× · TP +%.0f%%"
+       % (coin, w["side"], nm, tr["wr"], margin, SMART_LEV, tp * 100))
 
 def smart_publish(mids):
     eq = smart_equity(mids)
@@ -1370,7 +1384,8 @@ def live_open(w, equity):
             # No position showed up after a supposed fill -> treat as not opened, surface it.
             live_log("⚠️ %s: keine Position nach Order sichtbar — nicht als offen gewertet." % w["bare"], "warn"); return
         entry = mine["entry"] or mark
-        tp_roe = SET["tp_stock"] if w["dex"] else SET["tp_crypto"]
+        base_tp = SET["tp_stock"] if w["dex"] else SET["tp_crypto"]
+        tp_roe = scaled_tp(base_tp, w.get("lev"), lev)   # smaller TP if the whale's leverage < ours
         move = tp_roe / lev
         tp = round_px(entry * (1 + move) if is_buy else entry * (1 - move))
         try:
