@@ -1177,10 +1177,25 @@ def run_smart():
             cur = smart_fetch_main(tr["addr"])
             if cur is not None:
                 coins_now = set(cur.keys()); prev = _smart_last.get(tr["addr"]); _smart_last[tr["addr"]] = coins_now
-                # NOTE: we do NOT close when the source trader closes — our copies are
-                # managed only by our own TP / liquidation (per user's rule).
-                # genuine NEW opens (only after we have a baseline snapshot for this trader)
                 if prev is not None:
+                    # Source trader CLOSED a coin we copied from THEM -> close ours too,
+                    # UNLESS we're already in profit (then let the +TP / liquidation run).
+                    sm_ev = []
+                    with LOCK:
+                        for coin in prev - coins_now:
+                            p = SMART["pos"].get(coin)
+                            if not p or p.get("src") != tr["addr"]:
+                                continue
+                            pnl = smart_pnl(p, mids); roe = pnl / p["margin"] if p["margin"] else 0
+                            if roe > 0:
+                                continue   # in profit -> keep it, our +TP caps the upside
+                            SMART["cash"] += pnl; SMART["pos"].pop(coin)
+                            smart_record(p, pnl, "trader exit", mids)
+                            smart_log("🚪 EXIT %s — Trader zu, ROE %.0f%%" % (coin, roe * 100), "close")
+                            sm_ev.append("🧠 SMART 🚪 EXIT %s (Trader zu) · PnL $%.2f · %.0f%%" % (coin, pnl, roe * 100))
+                    for e in sm_ev:
+                        tg(e)
+                    # genuine NEW opens (only after we have a baseline snapshot for this trader)
                     for coin in coins_now - prev:
                         smart_consider(coin, cur[coin], tr, mids)
             with LOCK:
