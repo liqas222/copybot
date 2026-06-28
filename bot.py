@@ -183,6 +183,83 @@ def tg(msg):
     if TG["token"]:
         _TGQ.put("🕒 %s\n%s" % (stamp[:5], msg))   # local-time stamp on every Telegram message
 
+def _tg_reply(text):
+    if TG["token"]:
+        _TGQ.put(text)
+
+def _fmt_money(x):
+    try: x = float(x)
+    except Exception: x = 0.0
+    return ("+" if x >= 0 else "-") + "$%.2f" % abs(x)
+
+def _window_starts():
+    """(today_local_midnight, 7d_ago, 30d_ago) in epoch-ms."""
+    now_ms = time.time() * 1000
+    try:
+        base = datetime.datetime.now(LOCAL_TZ) if LOCAL_TZ else datetime.datetime.now()
+        today = base.replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000
+    except Exception:
+        today = now_ms - 86400000
+    return today, now_ms - 7 * 86400000, now_ms - 30 * 86400000
+
+def _stats_block(closed):
+    tday, w7, w30 = _window_starts()
+    def line(lbl, start):
+        rows = [t for t in closed if (t.get("closed_ms") or 0) >= start]
+        pnl = sum(float(t.get("pnl", 0)) for t in rows); n = len(rows)
+        wins = sum(1 for t in rows if float(t.get("pnl", 0)) > 0)
+        wr = round(100 * wins / n) if n else 0
+        return "%s: %s · %d Trades · %d%% WR" % (lbl, _fmt_money(pnl), n, wr)
+    return "\n".join([line("Heute", tday), line("7 Tage", w7), line("30 Tage", w30)])
+
+def _live_stats_text():
+    on = bool(LIVE.get("enabled") and LIVE.get("ready"))
+    total = sum(float(t.get("pnl", 0)) for t in LIVE.get("closed", []))
+    return ("🔴 LIVE-BOT (echtes Geld)\nAccount: $%.2f · offene Bot-Pos: %d · Engine: %s\n%s\nGesamt realisiert: %s"
+            % (LIVE.get("equity", 0), len(LIVE.get("owned", {})), "🟢 AN" if on else "⚪ AUS",
+               _stats_block(LIVE.get("closed", [])), _fmt_money(total)))
+
+def _smart_stats_text():
+    sm = STATE.get("smart", {})
+    total = sum(float(t.get("pnl", 0)) for t in SMART.get("closed", []))
+    return ("🧠 SMART-MONEY (Paper)\nEquity: $%.2f · offene Pos: %d\n%s\nGesamt realisiert: %s"
+            % (sm.get("equity", 0), len(sm.get("pos", [])), _stats_block(SMART.get("closed", [])), _fmt_money(total)))
+
+def run_tg_listener():
+    """Long-poll Telegram for incoming commands and reply with stats.
+    Commands (in the configured chat): 'live' -> live bot, 'smart'/'paper' -> Smart Money."""
+    offset = 0; drained = False
+    while True:
+        try:
+            tok = TG["token"]
+            if not tok:
+                time.sleep(5); continue
+            url = "https://api.telegram.org/bot%s/getUpdates?timeout=30&offset=%d" % (tok, offset)
+            r = urllib.request.urlopen(url, timeout=40)
+            data = json.loads(r.read())
+            for u in data.get("result", []):
+                offset = u["update_id"] + 1
+                if not drained:
+                    continue                      # skip backlog on first start
+                m = u.get("message") or u.get("channel_post") or {}
+                chat = str((m.get("chat") or {}).get("id", ""))
+                if TG.get("chat") and chat and chat != str(TG["chat"]):
+                    continue                      # only respond to the configured chat
+                text = (m.get("text") or "").strip().lower().lstrip("/")
+                if text in ("live", "l", "real"):
+                    _tg_reply(_live_stats_text())
+                elif text in ("smart", "paper", "p", "s"):
+                    _tg_reply(_smart_stats_text())
+                elif text in ("stats", "all", "alles"):
+                    _tg_reply(_live_stats_text() + "\n\n" + _smart_stats_text())
+                elif text in ("help", "start", "hilfe", "?"):
+                    _tg_reply("📊 Befehle:\nlive — Live-Bot Stats\nsmart — Smart-Money Stats\nstats — beide\n(jeweils Heute · 7 Tage · 30 Tage)")
+                elif text:
+                    _tg_reply("❓ Unbekannt. Schreib: live · smart · stats · help")
+            drained = True
+        except Exception as e:
+            print("tg listener error:", e); time.sleep(5)
+
 
 # ---------------- HL reads (public) ----------------
 def hl_post(base, body, timeout=10):
@@ -1652,6 +1729,7 @@ def run_paper():
     threading.Thread(target=start_tunnel, daemon=True).start()
     threading.Thread(target=run_smart, daemon=True).start()   # Smart-Money top-100 tracker (separate paper book)
     threading.Thread(target=run_live, daemon=True).start()    # LIVE real-money engine (OFF until enabled from dashboard)
+    threading.Thread(target=run_tg_listener, daemon=True).start()  # Telegram command listener (live/smart stats)
     if PAPER_TRADING:
         tg("🤖 Copy-Bot in PAPER mode (simulated, no real money) · start $%.0f" % PAPER_START)
     else:
