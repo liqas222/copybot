@@ -225,37 +225,85 @@ def _smart_stats_text():
     return ("🧠 SMART-MONEY (Paper)\nEquity: $%.2f · offene Pos: %d\n%s\nGesamt realisiert: %s"
             % (sm.get("equity", 0), len(sm.get("pos", [])), _stats_block(SMART.get("closed", [])), _fmt_money(total)))
 
+# ---- Telegram inline-keyboard menus (tap, don't type) ----
+def _tg_api(method, params):
+    tok = TG["token"]
+    if not tok:
+        return None
+    try:
+        data = urllib.parse.urlencode(params).encode()
+        r = urllib.request.urlopen("https://api.telegram.org/bot%s/%s" % (tok, method), data=data, timeout=10)
+        return json.loads(r.read())
+    except Exception as e:
+        print("tg api error:", e); return None
+
+def _kb(rows): return json.dumps({"inline_keyboard": rows})
+_MENU_KB = [[{"text": "🔴 Live (echtes Geld)", "callback_data": "e:live"}],
+            [{"text": "🧠 Smart Money", "callback_data": "e:smart"}]]
+def _period_kb(eng):
+    return [[{"text": "Heute", "callback_data": "s:%s:t" % eng}, {"text": "7 Tage", "callback_data": "s:%s:7" % eng}, {"text": "30 Tage", "callback_data": "s:%s:30" % eng}],
+            [{"text": "Gesamt", "callback_data": "s:%s:all" % eng}],
+            [{"text": "↩︎ Bot wechseln", "callback_data": "m"}]]
+_PERIOD_LABEL = {"t": "Heute", "7": "7 Tage", "30": "30 Tage", "all": "Gesamt"}
+def _period_start(per):
+    tday, w7, w30 = _window_starts()
+    return {"t": tday, "7": w7, "30": w30, "all": 0}.get(per, 0)
+
+def _stat_one(eng, per):
+    start = _period_start(per); lbl = _PERIOD_LABEL.get(per, per)
+    if eng == "live":
+        on = bool(LIVE.get("enabled") and LIVE.get("ready"))
+        head = "🔴 LIVE-BOT (echtes Geld)\nAccount: $%.2f · offen: %d · %s" % (LIVE.get("equity", 0), len(LIVE.get("owned", {})), "🟢 AN" if on else "⚪ AUS")
+        closed = LIVE.get("closed", [])
+    else:
+        sm = STATE.get("smart", {})
+        head = "🧠 SMART-MONEY (Paper)\nEquity: $%.2f · offen: %d" % (sm.get("equity", 0), len(sm.get("pos", [])))
+        closed = SMART.get("closed", [])
+    rows = [t for t in closed if (t.get("closed_ms") or 0) >= start]
+    pnl = sum(float(t.get("pnl", 0)) for t in rows); n = len(rows)
+    wins = sum(1 for t in rows if float(t.get("pnl", 0)) > 0); wr = round(100 * wins / n) if n else 0
+    return "%s\n\n📊 %s\nPnL: %s · %d Trades · %d%% Win-Rate" % (head, lbl, _fmt_money(pnl), n, wr)
+
 def run_tg_listener():
-    """Long-poll Telegram for incoming commands and reply with stats.
-    Commands (in the configured chat): 'live' -> live bot, 'smart'/'paper' -> Smart Money."""
+    """Long-poll Telegram and drive a tap-only menu: pick Live/Smart, then a period."""
     offset = 0; drained = False
     while True:
         try:
             tok = TG["token"]
             if not tok:
                 time.sleep(5); continue
-            url = "https://api.telegram.org/bot%s/getUpdates?timeout=30&offset=%d" % (tok, offset)
+            url = "https://api.telegram.org/bot%s/getUpdates?timeout=30&offset=%d&allowed_updates=%s" % (
+                tok, offset, urllib.parse.quote('["message","callback_query"]'))
             r = urllib.request.urlopen(url, timeout=40)
             data = json.loads(r.read())
             for u in data.get("result", []):
                 offset = u["update_id"] + 1
                 if not drained:
                     continue                      # skip backlog on first start
+                cq = u.get("callback_query")
+                if cq:                            # a button was tapped
+                    mm = cq.get("message") or {}
+                    chat = str((mm.get("chat") or {}).get("id", "")); mid = mm.get("message_id")
+                    _tg_api("answerCallbackQuery", {"callback_query_id": cq.get("id", "")})
+                    if TG.get("chat") and chat and chat != str(TG["chat"]):
+                        continue
+                    d = cq.get("data", "")
+                    if d == "m":
+                        _tg_api("editMessageText", {"chat_id": chat, "message_id": mid, "text": "📊 Stats — welcher Bot?", "reply_markup": _kb(_MENU_KB)})
+                    elif d.startswith("e:"):
+                        eng = d[2:]; title = "🔴 Live (echtes Geld)" if eng == "live" else "🧠 Smart Money"
+                        _tg_api("editMessageText", {"chat_id": chat, "message_id": mid, "text": "%s\nZeitraum wählen:" % title, "reply_markup": _kb(_period_kb(eng))})
+                    elif d.startswith("s:"):
+                        _, eng, per = d.split(":")
+                        _tg_api("editMessageText", {"chat_id": chat, "message_id": mid, "text": _stat_one(eng, per), "reply_markup": _kb(_period_kb(eng))})
+                    continue
                 m = u.get("message") or u.get("channel_post") or {}
                 chat = str((m.get("chat") or {}).get("id", ""))
+                if not m.get("text"):
+                    continue
                 if TG.get("chat") and chat and chat != str(TG["chat"]):
                     continue                      # only respond to the configured chat
-                text = (m.get("text") or "").strip().lower().lstrip("/")
-                if text in ("live", "l", "real"):
-                    _tg_reply(_live_stats_text())
-                elif text in ("smart", "paper", "p", "s"):
-                    _tg_reply(_smart_stats_text())
-                elif text in ("stats", "all", "alles"):
-                    _tg_reply(_live_stats_text() + "\n\n" + _smart_stats_text())
-                elif text in ("help", "start", "hilfe", "?"):
-                    _tg_reply("📊 Befehle:\nlive — Live-Bot Stats\nsmart — Smart-Money Stats\nstats — beide\n(jeweils Heute · 7 Tage · 30 Tage)")
-                elif text:
-                    _tg_reply("❓ Unbekannt. Schreib: live · smart · stats · help")
+                _tg_api("sendMessage", {"chat_id": chat, "text": "📊 Stats — welcher Bot?", "reply_markup": _kb(_MENU_KB)})
             drained = True
         except Exception as e:
             print("tg listener error:", e); time.sleep(5)
