@@ -622,13 +622,6 @@
             <section class="panel" id="smartPort"><header class="phead"><span class="wlabel">Smart Money · Paper</span></header><div class="state small">Lädt… (Engine startet beim Server-Start)</div></section>
             <div class="smartstack">
               <section class="panel" id="smartSignals"><header class="phead"><span class="wlabel">Decision Feed</span></header><div class="state small">…</div></section>
-              <section class="panel" id="smartScan">
-                <header class="phead"><span class="wlabel">Live Trade-Scanner</span><span class="meta"><span class="scancd-h" id="scanCountdown">…</span></span></header>
-                <div class="scanocto-wrap">
-                  <canvas id="scanOcto"></canvas>
-                  <div class="scanocto-status" id="scanOctoStatus">Tastet Trader-Positionen ab…</div>
-                </div>
-              </section>
             </div>
           </div>
           <section class="panel" id="smartPos"><header class="phead"><span class="wlabel">Open Positions</span></header><div class="state small">…</div></section>
@@ -673,7 +666,16 @@
                     <input id="liveMaxLev" class="tgin" type="number" min="1" max="40" step="1" style="max-width:90px">
                     <button class="btn" onclick="liveSaveSettings()">Speichern</button>
                   </div>
-                  <div class="setnote">Live-Hebel = min(Copy-Bot-Hebel, dieser Cap). Aktuell effektiv: <b id="liveEffLev">—</b>×. Take-Profit &amp; Tracking-Wallet änderst du in den normalen <b>Settings</b>.</div>
+                  <div class="setnote">Live-Hebel = min(Copy-Bot-Hebel, dieser Cap). Aktuell effektiv: <b id="liveEffLev">—</b>×.</div>
+                </div>
+                <div class="setrow" style="margin-top:14px">
+                  <label class="setlbl">Take-Profit (gilt für neue Trades)</label>
+                  <div class="setinline">
+                    <span class="ingrp"><input id="tpCrypto" class="numin" type="number" min="1" max="1000" step="1" style="max-width:80px"><span class="unit">% Crypto</span></span>
+                    <span class="ingrp"><input id="tpStock" class="numin" type="number" min="1" max="1000" step="1" style="max-width:80px"><span class="unit">% Stocks</span></span>
+                    <button class="btn" onclick="saveTp()">Speichern</button>
+                  </div>
+                  <div id="tpMsg" class="setnote">Gilt für <b>neue</b> Trades. Offene Positionen behalten ihren TP.</div>
                 </div>
                 <div class="livemaster" style="margin-top:14px">
                   <div><div class="livemlabel" style="font-size:14px">Tages-Kill-Switch (−25 %)</div><div class="setnote" id="liveKsNote" style="margin-top:2px">Stoppt neue Trades bei −25 % Tagesverlust.</div></div>
@@ -883,7 +885,6 @@
             </div>
           </section>
           <div class="vgrid">
-            <section class="panel" id="botSettings"><header class="phead"><span class="wlabel">Copy-Bot Settings</span></header><div class="state small">…</div></section>
             <section class="panel" id="botTg"><header class="phead"><span class="wlabel">Notifications</span></header><div class="state small">…</div></section>
           </div>
         </section>
@@ -1670,12 +1671,11 @@ async function pollBot() {
     setLed("ledBot", true);
   } catch (e) {
     setLed("ledBot", false); setLed("ledTg", null);
-    botSettingsReady = false; lastTgOn = null; botPosEmpty = false;
+    lastTgOn = null; botPosEmpty = false;
     botMyClosed = null; renderMyClosed();   // bot offline -> fall back to the fills estimate
     const off = (id, title) => { const x = document.getElementById(id); if (x) { x.innerHTML = `<header class="phead"><span class="wlabel">${title}</span></header><div class="state small">\u2014</div>`; x.dataset.built = ""; } };
     const port = document.getElementById("botPortfolio");
     if (port) port.innerHTML = `<header class="phead"><span class="wlabel">Copy-Bot</span><span class="botbadge off">\u26aa Offline</span></header><div class="state small">Bot offline \u2014 appears as soon as the bot is running and serving this page.</div>`;
-    off("botSettings", "Copy-Bot Settings");
     off("botClosed", "Closed Trades");
     off("botTg", "Notifications");
     off("botPerf", "Copy-Bot Performance");
@@ -1713,7 +1713,6 @@ function renderBot(s) {
     }
   }
   renderBotPortfolio(s);
-  renderBotSettings(s);
   renderBotTg(s);
   renderBotPerf(s);
   renderBotPositions(s);
@@ -1792,6 +1791,10 @@ function renderLive(lv) {
   setT("liveMaxPos", lv.max_positions != null ? lv.max_positions : "—");
   setT("liveTpC", lv.tp_crypto_pct != null ? "+" + lv.tp_crypto_pct + "%" : "—");
   setT("liveTpS", lv.tp_stock_pct != null ? "+" + lv.tp_stock_pct + "%" : "—");
+  const tcIn = document.getElementById("tpCrypto");
+  if (tcIn && document.activeElement !== tcIn && lv.tp_crypto_pct != null) tcIn.value = lv.tp_crypto_pct;
+  const tsIn = document.getElementById("tpStock");
+  if (tsIn && document.activeElement !== tsIn && lv.tp_stock_pct != null) tsIn.value = lv.tp_stock_pct;
   setT("liveDaily", lv.daily_loss_pct != null ? "−" + lv.daily_loss_pct + "%" : "—");
   setT("liveEffLev", lv.lev != null ? lv.lev : "—");
   const lvl = document.getElementById("liveMaxLev");
@@ -2112,7 +2115,6 @@ function renderSmart(sm) {
   smartNextMs = sm.next_build_ms || 0;
   smartCountdownTick();
   scanRadarStart();
-  scanOctoStart();
   renderSmartAux(sm);
 }
 function renderSmartAux(sm) {
@@ -2297,44 +2299,6 @@ async function botCmd(cmd) {
 }
 function botFlatten() { if (confirm("Close ALL positions?")) botCmd("flatten"); }
 function botAdopt() { if (confirm("Copy currently-open whale positions you don't hold yet, at the whale's entry price?")) botCmd("adopt"); }
-let botSettingsReady = false;
-// Update the live strategy summary (called every poll AND right after saving) without rebuilding inputs.
-function setStratSummary(s, c, st) {
-  const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
-  set("stratLev", s.fixed_lev != null ? s.fixed_lev + "× (fix)" : "—");
-  set("stratSize", s.capital_pct != null ? s.capital_pct + "% equity" : "—");
-  set("stratMax", s.max_positions || 5);
-  set("stratKill", "−" + (s.daily_loss_pct != null ? s.daily_loss_pct : 25) + "% realized");
-  set("stratTp", "Crypto +" + c + "% · Stocks +" + st + "%");
-}
-function renderBotSettings(s) {
-  const el = document.getElementById("botSettings");
-  if (!el) return;
-  const c = s.tp_crypto_pct != null ? s.tp_crypto_pct : 20;
-  const st = s.tp_stock_pct != null ? s.tp_stock_pct : 20;
-  // Build inputs once (so typing isn't interrupted), but refresh the live summary every poll.
-  if (botSettingsReady && document.getElementById("tpCrypto")) { setStratSummary(s, c, st); return; }
-  el.innerHTML = `<header class="phead"><span class="wlabel">Copy-Bot Settings</span></header>
-    <div class="pbody">
-      <div class="stratbox">
-        <div class="strathd">Active strategy</div>
-        <div class="statrow"><span>Leverage</span><span class="num" id="stratLev">—</span></div>
-        <div class="statrow"><span>Size per trade</span><span class="num" id="stratSize">—</span></div>
-        <div class="statrow"><span>Max positions</span><span class="num" id="stratMax">—</span></div>
-        <div class="statrow"><span>Daily kill-switch</span><span class="num" id="stratKill">—</span></div>
-        <div class="statrow"><span>Take-Profit</span><span class="num" id="stratTp">—</span></div>
-      </div>
-      <div class="setgrp">
-        <div class="setgrphd">Edit Take-Profit</div>
-        <div class="setrow"><label>Crypto</label><span class="ingrp"><input id="tpCrypto" class="numin" type="number" min="1" max="1000" step="1" value="${c}"><span class="unit">% ROE</span></span></div>
-        <div class="setrow"><label>Stocks</label><span class="ingrp"><input id="tpStock" class="numin" type="number" min="1" max="1000" step="1" value="${st}"><span class="unit">% ROE</span></span></div>
-        <button class="btn primary" style="width:100%;margin-top:4px" onclick="saveTp()">✓ Apply</button>
-        <div id="tpMsg" class="setnote">Applies to <b>new</b> trades. Open positions keep their TP.</div>
-      </div>
-    </div>`;
-  botSettingsReady = true;
-  setStratSummary(s, c, st);
-}
 async function saveTp() {
   const c = parseFloat((document.getElementById("tpCrypto") || {}).value);
   const st = parseFloat((document.getElementById("tpStock") || {}).value);
@@ -2625,7 +2589,7 @@ function showView(name) {
     else if (typeof arcadeStopAll === "function") arcadeStopAll();
     else pgStop();
   }
-  if (name === "smart" && typeof scanRadarStart === "function") { setTimeout(scanRadarStart, 0); setTimeout(scanOctoStart, 0); }
+  if (name === "smart" && typeof scanRadarStart === "function") { setTimeout(scanRadarStart, 0); }
 }
 function initNav() {
   document.querySelectorAll(".navitem").forEach((n) => n.addEventListener("click", () => showView(n.dataset.view)));
