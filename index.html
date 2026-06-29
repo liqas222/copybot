@@ -2189,11 +2189,12 @@ function renderSmartAux(sm) {
         : `<span style="color:var(--muted)">${esc(nm) || "—"}</span>`;
       return `<tr><td><span class="side ${p.side === "LONG" ? "long" : "short"}">${p.side}</span> ${esc(p.coin)}</td>
         <td class="qcell">${srcCell}</td><td class="num">$${fmtP(p.entry)}</td><td class="num">$${fmtP(p.mark)}</td>
+        <td class="num">${(p.lev || 0)}×</td><td class="num neg">${p.liq ? "$" + fmtP(p.liq) : "—"}</td>
         <td class="num">${fmtUsdC(p.margin || 0)}</td>
         <td class="num ${up ? "pos" : "neg"}">${fmtSignedC(p.upnl)}</td><td class="num ${up ? "pos" : "neg"}">${((p.roe || 0) * 100).toFixed(1)}%</td></tr>`;
     }).join("");
     pp.innerHTML = `<header class="phead"><span class="wlabel">Open Positions</span><span class="meta">${(sm.pos || []).length}</span></header>
-      <div class="pbody">${rows ? `<div class="tablewrap"><table><thead><tr><th class="poscol">Position</th><th class="qcol">Quelle</th><th>Entry</th><th>Mark</th><th>Margin</th><th>uPnL</th><th>ROE</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="state small">Keine offenen Positionen.</div>`}</div>`;
+      <div class="pbody">${rows ? `<div class="tablewrap"><table><thead><tr><th class="poscol">Position</th><th class="qcol">Quelle</th><th>Entry</th><th>Mark</th><th>Lev</th><th>Liq.</th><th>Margin</th><th>uPnL</th><th>ROE</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="state small">Keine offenen Positionen.</div>`}</div>`;
   }
   const tp = document.getElementById("smartTop");
   if (tp) {
