@@ -581,6 +581,25 @@
         </section>
         <section class="view" id="view-live">
           <div class="liverisk">⚠️ <b>Echtes Geld.</b> Diese Engine platziert echte Orders auf Hyperliquid Mainnet mit deinem Kapital — gleiche Regeln wie der Copy-Bot (1/5 Equity pro Trade · max 5 Positionen · TP pro Assetklasse · −25 % Tages-Kill-Switch · kein Stop-Loss). Sie ist standardmäßig <b>AUS</b> und tradet nur, solange du sie hier scharf schaltest.</div>
+          <section class="panel" id="liveConn">
+            <header class="phead"><span class="wlabel">Hyperliquid verbinden</span><span class="meta" id="liveConnState">—</span></header>
+            <div class="pbody">
+              <div class="setnote" id="liveConnHint">Verbinde dein Hyperliquid-Konto direkt hier — kein Server-Login nötig. Du brauchst einen <b>Agent-/API-Wallet-Key</b> (trade-only, kann <b>nicht</b> abheben). Erstelle ihn auf <a href="https://app.hyperliquid.xyz/API" target="_blank" rel="noopener">app.hyperliquid.xyz/API</a> → „Generate" und kopiere den privaten Key. Der Key wird nur auf dem Server gespeichert (gitignored) und nie im Browser angezeigt.</div>
+              <div class="setrow" style="margin-top:12px">
+                <label class="setlbl">Account-Adresse (dein Haupt-Wallet, 0x…)</label>
+                <input id="liveAccAddr" class="tgin" type="text" autocomplete="off" spellcheck="false" placeholder="0x… (40 Zeichen)" style="width:100%">
+              </div>
+              <div class="setrow" style="margin-top:10px">
+                <label class="setlbl">Agent-Key (privater Key des API-Wallets)</label>
+                <input id="liveAgentKey" class="tgin" type="password" autocomplete="off" spellcheck="false" placeholder="0x… (64 Zeichen)" style="width:100%">
+              </div>
+              <div class="setinline" style="margin-top:12px">
+                <button class="btn primary" id="liveConnBtn" onclick="liveConnect()">🔗 Verbinden</button>
+                <button class="btn danger" id="liveDiscBtn" onclick="liveDisconnect()" style="display:none">🔌 Trennen</button>
+              </div>
+              <div class="liveerr" id="liveConnErr" style="display:none;margin-top:10px"></div>
+            </div>
+          </section>
           <div class="vgrid">
             <section class="panel" id="liveCtl">
               <header class="phead"><span class="wlabel">Live-Engine</span><span class="meta" id="liveNet">—</span></header>
@@ -1641,6 +1660,15 @@ function renderLive(lv) {
   }
   const net = document.getElementById("liveNet");
   if (net) net.textContent = lv.net ? "🔴 " + lv.net : "—";
+  // connection state (Hyperliquid agent-key present on the server)
+  const cs = document.getElementById("liveConnState");
+  if (cs) cs.innerHTML = lv.connected
+    ? (lv.ready ? '<span class="pos">🟢 verbunden</span>' : '<span class="neg">⚠️ Key gespeichert, nicht bereit</span>')
+    : '<span style="color:var(--muted)">⚪ nicht verbunden</span>';
+  const discBtn = document.getElementById("liveDiscBtn");
+  if (discBtn) discBtn.style.display = lv.connected ? "" : "none";
+  const connBtn = document.getElementById("liveConnBtn");
+  if (connBtn) connBtn.textContent = lv.connected ? "🔁 Key ersetzen" : "🔗 Verbinden";
   const setT = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
   const money = (id, v) => { const e = document.getElementById(id); if (!e) return; if (v == null) { e.textContent = "—"; return; } e.textContent = fmtSignedC(v); e.classList.toggle("pos", v >= 0); e.classList.toggle("neg", v < 0); };
   setT("liveEquity", lv.equity != null ? fmtUsdC(lv.equity) : "—");
@@ -1693,6 +1721,35 @@ function renderLive(lv) {
     const rows = (lv.closed || []).map((t) => { const w = (t.pnl || 0) >= 0; return `<div class="logrow"><span class="logt">${esc(t.side || "")} ${esc(t.coin || "")}</span> <span class="num ${w ? "pos" : "neg"}">${fmtSignedC(t.pnl)}</span> · <span class="num ${w ? "pos" : "neg"}">${((t.roe || 0) * 100).toFixed(1)}%</span> · <span style="color:var(--muted)">${esc(t.reason || "")}</span></div>`; }).join("") || `<div class="state small">Noch keine geschlossenen Live-Trades.</div>`;
     cl.innerHTML = `<header class="phead"><span class="wlabel">Geschlossene Live-Trades</span></header><div class="pbody"><div class="botlog tall">${rows}</div></div>`;
   }
+}
+async function liveConnect() {
+  const addr = (document.getElementById("liveAccAddr").value || "").trim();
+  const key = (document.getElementById("liveAgentKey").value || "").trim();
+  const err = document.getElementById("liveConnErr");
+  const show = (m) => { if (err) { err.style.display = "block"; err.textContent = "⚠️ " + m; } };
+  if (!addr || !key) { show("Account-Adresse und Agent-Key eingeben."); return; }
+  const btn = document.getElementById("liveConnBtn"); if (btn) btn.disabled = true;
+  try {
+    const r = await fetch("/live_connect?token=" + encodeURIComponent(DASH_TOKEN), {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "account_address=" + encodeURIComponent(addr) + "&agent_key=" + encodeURIComponent(key) });
+    const j = await r.json();
+    if (j.ok) {
+      if (err) err.style.display = "none";
+      document.getElementById("liveAgentKey").value = "";   // never keep the key in the field
+      alert("✅ Hyperliquid verbunden. Du kannst die Live-Engine jetzt scharf schalten.");
+    } else { show(j.error || "Verbinden fehlgeschlagen."); }
+  } catch (e) { show("Fehler: " + e); }
+  if (btn) btn.disabled = false;
+}
+async function liveDisconnect() {
+  if (!confirm("Hyperliquid trennen? Der Agent-Key wird vom Server gelöscht und die Live-Engine ausgeschaltet. Offene Positionen bleiben unverändert.")) return;
+  try {
+    await fetch("/live_disconnect?token=" + encodeURIComponent(DASH_TOKEN), { method: "POST" });
+    document.getElementById("liveAccAddr").value = "";
+    document.getElementById("liveAgentKey").value = "";
+    const sw = document.getElementById("liveSwitch"); if (sw) sw.checked = false;
+  } catch (e) { alert("Fehler: " + e); }
 }
 async function liveToggle(on) {
   if (on && !confirm("ECHTES GELD: Die Live-Engine wird scharf geschaltet und tradet ab sofort automatisch mit deinem echten Kapital auf Hyperliquid Mainnet.\n\nGleiche Regeln wie der Copy-Bot. Wirklich aktivieren?")) {

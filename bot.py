@@ -63,6 +63,7 @@ WALLETS = [
     {"addr": "0x1aa780bb10425b86bcf05ecbb7953f9a93729ed9", "label": "Wallet 2"},
 ]
 ADDR_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
+KEY_RE  = re.compile(r"^0x[0-9a-fA-F]{64}$")   # an agent/API private key: 0x + 32 bytes hex
 
 def wallets_payload():
     return [{"addr": w["addr"], "label": w["label"],
@@ -740,6 +741,34 @@ class Handler(BaseHTTPRequestHandler):
             save_secrets()
             tg("➕ Now tracking %s (%s)" % (label, addr[:6] + "…" + addr[-4:]))
             return self._send(200, json.dumps({"ok": True, "wallets": wallets_payload()}))
+        elif path == "/live_connect":
+            ln = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(ln).decode("utf-8", "ignore") if ln > 0 else ""
+            body = urllib.parse.parse_qs(raw)
+            addr = (body.get("account_address", [""])[0] or "").strip()
+            key = (body.get("agent_key", [""])[0] or "").strip()
+            if key and not key.startswith("0x"):
+                key = "0x" + key          # accept a key pasted without the 0x prefix
+            if not ADDR_RE.match(addr):
+                return self._send(200, json.dumps({"ok": False, "error": "Account-Adresse ungültig (0x + 40 Hex-Zeichen)"}))
+            if not KEY_RE.match(key):
+                return self._send(200, json.dumps({"ok": False, "error": "Agent-Key ungültig (0x + 64 Hex-Zeichen)"}))
+            try:
+                live_save_credentials(key, addr)
+            except Exception as e:
+                return self._send(200, json.dumps({"ok": False, "error": "Speichern fehlgeschlagen: %s" % e}))
+            # force a fresh Exchange build with the new key, then verify it works
+            LIVE["ready"] = False; LIVE["ex"] = None; LIVE["err"] = ""
+            ok, msg = live_init()
+            if not ok:
+                return self._send(200, json.dumps({"ok": False, "error": msg, "connected": True}))
+            tg("🔗 Hyperliquid verbunden (Agent-Key) · Account %s" % (addr[:6] + "…" + addr[-4:]))
+            return self._send(200, json.dumps({"ok": True, "connected": True, "ready": LIVE["ready"], "addr": addr}))
+        elif path == "/live_disconnect":
+            live_clear_credentials()
+            live_save_config()
+            tg("🔌 Hyperliquid getrennt — Agent-Key entfernt, Live-Engine aus.")
+            return self._send(200, json.dumps({"ok": True, "connected": False}))
         elif path == "/live_toggle":
             ln = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(ln).decode("utf-8", "ignore") if ln > 0 else ""
@@ -1397,6 +1426,53 @@ def live_save_config():
     except Exception as e:
         print("live_save_config error:", e)
 
+def live_has_credentials():
+    """True if config.json already holds an agent_key + account_address. Used by the
+    dashboard to show whether Hyperliquid is connected — without ever exposing the key."""
+    if not os.path.exists(CONFIG_FILE):
+        return False
+    try:
+        d = json.load(open(CONFIG_FILE))
+        return bool((d.get("agent_key") or "").strip()) and bool((d.get("account_address") or "").strip())
+    except Exception:
+        return False
+
+def live_save_credentials(key, addr):
+    """Atomic write of the agent_key + account_address into config.json, preserving the
+    other settings (enabled/max_lev/killswitch) already on disk. The key is stored ONLY
+    here (gitignored) and is never sent back to the browser or logged."""
+    d = {}
+    if os.path.exists(CONFIG_FILE):
+        try:    d = json.load(open(CONFIG_FILE))
+        except Exception: d = {}
+    d["agent_key"] = key
+    d["account_address"] = addr
+    tmp = CONFIG_FILE + ".tmp"
+    json.dump(d, open(tmp, "w"))
+    os.replace(tmp, CONFIG_FILE)
+    try:    os.chmod(CONFIG_FILE, 0o600)   # key file: owner read/write only
+    except Exception: pass
+
+def live_clear_credentials():
+    """Remove the agent_key + account_address from config.json and tear down the live
+    Exchange so the engine can no longer trade. Keeps the other settings intact."""
+    if os.path.exists(CONFIG_FILE):
+        try:
+            d = json.load(open(CONFIG_FILE))
+        except Exception:
+            d = {}
+        d.pop("agent_key", None)
+        d.pop("account_address", None)
+        d["live_enabled"] = False
+        tmp = CONFIG_FILE + ".tmp"
+        json.dump(d, open(tmp, "w"))
+        os.replace(tmp, CONFIG_FILE)
+    LIVE["enabled"] = False
+    LIVE["ready"] = False
+    LIVE["ex"] = None
+    LIVE["addr"] = ""
+    LIVE["err"] = ""
+
 def live_save_state():
     """Persist which positions the engine opened (owned) + the closed-trade log, so a
     restart doesn't forget them. Without this, a position opened before a restart and
@@ -1621,6 +1697,7 @@ def live_publish():
     with LOCK:
         STATE["live"] = {
             "enabled": LIVE["enabled"], "ready": LIVE["ready"], "err": LIVE["err"],
+            "connected": live_has_credentials(),
             "net": LIVE["net"], "addr": LIVE["addr"], "whale": WHALE, "equity": round(LIVE["equity"], 2),
             "perp_equity": round(LIVE["perp_equity"], 2), "spot_equity": round(LIVE["spot_equity"], 2),
             "day_pnl": day_pnl, "killed": LIVE["killed"], "killswitch": LIVE["killswitch"], "max_lev": LIVE["max_lev"],
