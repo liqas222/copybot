@@ -203,7 +203,10 @@
   .mclose:hover { color: var(--text); border-color: #2c3540; }
   .modalchart { padding: 16px 14px 18px; position: relative; }
   .modalchart svg.bigchart { width: 100%; height: 360px; display: block; }
-  .acctchart svg.bigchart { width: 100%; height: 300px; display: block; }
+  .acctwrap { position: relative; width: 100%; height: 300px; padding-right: 58px; box-sizing: border-box; }
+  .acctsvg { width: 100%; height: 100%; display: block; }
+  .acylabels { position: absolute; top: 0; right: 0; bottom: 0; width: 58px; pointer-events: none; }
+  .acy { position: absolute; right: 8px; transform: translateY(-50%); font-family: var(--mono); font-size: 11px; color: #6b7686; white-space: nowrap; }
   #smartPos th.poscol, #smartPos td:first-child { width: 84px; white-space: nowrap; }
   #smartPos th.qcol, #smartPos td.qcell { text-align: left; white-space: nowrap; }
   #smartPos td.qcell .waddr.srcfull { font-size: 12px; word-break: normal; }
@@ -2605,7 +2608,7 @@ function smoothD(P) {
 }
 function acctChartSvg(raw) {
   const pts = dropNeedles(raw);
-  const W = 900, H = 360, padX = 8, padT = 14, padB = 18;
+  const W = 1000, H = 300, padX = 6, padT = 10, padB = 10;
   let min = Infinity, max = -Infinity;
   for (const p of pts) { if (p.v < min) min = p.v; if (p.v > max) max = p.v; }
   if (max === min) { max += 1; min -= 1; }
@@ -2614,20 +2617,22 @@ function acctChartSvg(raw) {
   const X = (i) => padX + (i / (n - 1)) * (W - 2 * padX);
   const Y = (v) => padT + (1 - (v - min) / (max - min)) * (H - padT - padB);
   const P = pts.map((p, i) => ({ x: X(i), y: Y(p.v) }));
-  const up = pts[n - 1].v >= pts[0].v, col = up ? "var(--long)" : "var(--short)", gid = up ? "agup" : "agdn";
+  const up = pts[n - 1].v >= pts[0].v, col = up ? "var(--long)" : "var(--short)", gid = "ag" + Math.random().toString(36).slice(2, 7);
   const dline = smoothD(P);
   const bottom = (H - padB).toFixed(1);
   const darea = dline + ` L${P[n - 1].x.toFixed(1)} ${bottom} L${P[0].x.toFixed(1)} ${bottom} Z`;
-  let grid = "";
+  // grid lines live in the (stretched) SVG; the value labels are HTML so they
+  // never get distorted by preserveAspectRatio="none".
+  let grid = "", labels = "";
   for (let g = 0; g <= 4; g++) {
     const v = min + (max - min) * (g / 4), y = Y(v);
     grid += `<line x1="${padX}" x2="${W - padX}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,.05)"/>`;
-    grid += `<text x="${W - padX}" y="${(y - 3).toFixed(1)}" fill="#6b7686" font-size="11" text-anchor="end" font-family="monospace">$${fmtP(v)}</text>`;
+    labels += `<span class="acy" style="top:${((y / H) * 100).toFixed(2)}%">$${fmtP(v)}</span>`;
   }
-  return `<svg class="bigchart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+  return `<div class="acctwrap"><svg class="acctsvg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
     <defs><linearGradient id="${gid}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity="0.22"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>
-    ${grid}<path d="${darea}" fill="url(#${gid})"/><path d="${dline}" fill="none" stroke="${col}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
-  </svg>`;
+    ${grid}<path d="${darea}" fill="url(#${gid})"/><path d="${dline}" fill="none" stroke="${col}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+  </svg><div class="acylabels">${labels}</div></div>`;
 }
 function bigChartSvg(pts) {
   const W = 900, H = 360, padX = 8, padT = 14, padB = 18;
