@@ -131,6 +131,12 @@ LIVE_HIST_EVERY = 60         # seconds between live equity snapshots for the cha
 # A mode switch is only allowed when the CURRENT mode is flat (no open bot positions).
 MODE = {"v": "live"}
 
+# Active trading mode — exactly ONE engine may open new trades at a time.
+#   "live"  -> the real-money Live engine may be armed; Smart Money opens nothing.
+#   "smart" -> Smart Money opens (paper for now); the Live engine is forced off.
+# A mode switch is only allowed when the CURRENT mode is flat (no open bot positions).
+MODE = {"v": "live"}
+
 # virtual book for paper mode
 PAPER = {"cash": PAPER_START, "pos": {}, "hist": [], "closed": []}   # pos: key(tuple) -> dict; hist: [[t_ms, equity], ...]; closed: [trade dicts]
 HIST_EVERY = 60       # seconds between equity snapshots for the chart
