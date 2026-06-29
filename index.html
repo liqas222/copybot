@@ -204,6 +204,9 @@
   .modalchart { padding: 16px 14px 18px; position: relative; }
   .modalchart svg.bigchart { width: 100%; height: 360px; display: block; }
   .acctchart svg.bigchart { width: 100%; height: 300px; display: block; }
+  #smartPos th.poscol, #smartPos td:first-child { width: 84px; white-space: nowrap; }
+  #smartPos th.qcol, #smartPos td.qcell { text-align: left; white-space: nowrap; }
+  #smartPos td.qcell .waddr.srcfull { font-size: 12px; word-break: normal; }
   .mcrosshair { position: absolute; top: 16px; bottom: 18px; width: 1px; background: rgba(255,255,255,.18); display: none; pointer-events: none; }
   .mctip { position: absolute; display: none; pointer-events: none; background: #0d1117; border: 1px solid var(--line2); border-radius: 8px; padding: 6px 9px; font-size: 12px; z-index: 3; white-space: nowrap; }
   .mctip b { display: block; font-family: var(--mono); }
@@ -2174,13 +2177,17 @@ function renderSmartAux(sm) {
   if (pp) {
     const rows = (sm.pos || []).map((p) => {
       const up = (p.upnl || 0) >= 0;
+      const nm = p.src_name || "";
+      const srcCell = p.src
+        ? `<a class="waddr srcfull" href="https://hypurrscan.io/address/${esc(p.src)}" target="_blank" rel="noopener">${nm && !nm.endsWith("…") ? esc(nm) + " · " : ""}${esc(p.src)}</a>`
+        : `<span style="color:var(--muted)">${esc(nm) || "—"}</span>`;
       return `<tr><td><span class="side ${p.side === "LONG" ? "long" : "short"}">${p.side}</span> ${esc(p.coin)}</td>
-        <td class="num">${esc(p.src_name || "")}</td><td class="num">$${fmtP(p.entry)}</td><td class="num">$${fmtP(p.mark)}</td>
+        <td class="qcell">${srcCell}</td><td class="num">$${fmtP(p.entry)}</td><td class="num">$${fmtP(p.mark)}</td>
         <td class="num">${fmtUsdC(p.margin || 0)}</td>
         <td class="num ${up ? "pos" : "neg"}">${fmtSignedC(p.upnl)}</td><td class="num ${up ? "pos" : "neg"}">${((p.roe || 0) * 100).toFixed(1)}%</td></tr>`;
     }).join("");
     pp.innerHTML = `<header class="phead"><span class="wlabel">Open Positions</span><span class="meta">${(sm.pos || []).length}</span></header>
-      <div class="pbody">${rows ? `<div class="tablewrap"><table><thead><tr><th>Position</th><th>Quelle</th><th>Entry</th><th>Mark</th><th>Margin</th><th>uPnL</th><th>ROE</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="state small">Keine offenen Positionen.</div>`}</div>`;
+      <div class="pbody">${rows ? `<div class="tablewrap"><table><thead><tr><th class="poscol">Position</th><th class="qcol">Quelle</th><th>Entry</th><th>Mark</th><th>Margin</th><th>uPnL</th><th>ROE</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="state small">Keine offenen Positionen.</div>`}</div>`;
   }
   const tp = document.getElementById("smartTop");
   if (tp) {

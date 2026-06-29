@@ -1284,7 +1284,7 @@ def smart_publish(mids):
         upnl = sign * p["sz"] * (mk - p["entry"]); roe = upnl / p["margin"] if p["margin"] else 0
         pos.append({"coin": c, "side": p["side"], "entry": p["entry"], "mark": mk, "lev": p["lev"],
             "margin": round(p["margin"], 2), "upnl": round(upnl, 2), "roe": round(roe, 4),
-            "src_name": p.get("src_name", ""), "opened": p.get("opened_ms", 0)})
+            "src_name": p.get("src_name", ""), "src": p.get("src", ""), "opened": p.get("opened_ms", 0)})
     pos.sort(key=lambda x: -abs(x["margin"]))
     wins = sum(1 for t in SMART["closed"] if t["pnl"] > 0); tot = sum(t["pnl"] for t in SMART["closed"]); n = len(SMART["closed"])
     sum_roe = sum((t.get("roe") or 0) for t in SMART["closed"]) * 100.0   # added-up % of every trade
