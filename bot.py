@@ -818,6 +818,17 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/live_flatten":
             threading.Thread(target=live_flatten, daemon=True).start()
             return self._send(200, json.dumps({"ok": True}))
+        elif path == "/live_test_order":
+            ln = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(ln).decode("utf-8", "ignore") if ln > 0 else ""
+            body = urllib.parse.parse_qs(raw)
+            coin = (body.get("coin", ["BTC"])[0] or "BTC").strip().upper()
+            side = (body.get("side", ["long"])[0] or "long").strip().lower()
+            try:    margin = float(body.get("margin", ["10"])[0])
+            except Exception: margin = 10.0
+            margin = max(1.0, min(margin, 1000.0))   # safety cap on a manual test order
+            ok, msg = live_test_open(coin, side != "short", margin)
+            return self._send(200, json.dumps({"ok": ok, "error": "" if ok else msg}))
         elif path == "/delwallet":
             ln = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(ln).decode("utf-8", "ignore") if ln > 0 else ""
@@ -1594,6 +1605,51 @@ def live_resp_error(resp):
         return None
     except Exception:
         return None
+
+def live_test_open(coin, is_buy, margin):
+    """Manually open ONE small real position on the connected live account to verify the
+    order path end-to-end (independent of the whale/engine). Leaves it open; records it as
+    engine-owned so it shows in the dashboard and PANIC can close it. Returns (ok, msg)."""
+    ok, m = live_init()
+    if not ok:
+        return False, m
+    ex = LIVE["ex"]
+    lev = live_lev()
+    try:
+        mids = hl_post(EXEC_URL, {"type": "allMids"})
+        mark = float(mids.get(coin) or 0)
+    except Exception as e:
+        return False, "Preis-Read fehlgeschlagen: %s" % e
+    if mark <= 0:
+        return False, "kein Preis für %s" % coin
+    sz = round_sz(EXEC_URL, coin, (margin * lev) / mark)
+    if sz <= 0:
+        return False, "Größe 0 — Margin zu klein für %s" % coin
+    key = ("", coin)
+    try:
+        lres = ex.update_leverage(lev, coin, True)   # cross
+        lerr = live_resp_error(lres)
+        if lerr:
+            live_note("⚠️ Test-Leverage %s: %s" % (coin, lerr), "warn")
+        res = ex.market_open(coin, is_buy, sz)
+        err = live_resp_error(res)
+        if err:
+            return False, "Order von Hyperliquid abgelehnt: %s" % err
+        time.sleep(1.0)
+        mine = get_positions(EXEC_URL, ex.account_address).get(key)
+        if not mine:
+            return False, "keine Position nach Order sichtbar (eventuell nicht gefüllt)"
+        entry = mine["entry"] or mark
+        with LOCK:
+            LIVE["owned"][key] = {"coin": coin, "bare": coin, "side": "LONG" if is_buy else "SHORT",
+                                  "entry": entry, "margin": round(margin, 2), "sz": sz, "lev": lev,
+                                  "opened_ms": int(time.time() * 1000), "test": True}
+        live_save_state()
+        live_log("🧪 TEST-ORDER %s %s · Margin $%.2f · %d× · Entry ~$%.2f (bleibt offen — mit PANIC schließen)"
+                 % (coin, "LONG" if is_buy else "SHORT", margin, lev, entry), "open")
+        return True, "ok"
+    except Exception as e:
+        return False, "Fehler: %s" % e
 
 def live_open(w, equity):
     """Open ONE real copy of a whale position. Mirrors open_copy but leverage-capped

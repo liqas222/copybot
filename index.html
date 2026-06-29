@@ -683,6 +683,16 @@
               </div>
             </section>
           </div>
+          <section class="panel" id="liveTest">
+            <header class="phead"><span class="wlabel">Test-Trade</span><span class="meta">Funktionsprüfung</span></header>
+            <div class="pbody">
+              <div class="setnote">Öffnet eine <b>echte</b> kleine Order auf deinem verbundenen Konto, um den Order-Pfad zu prüfen. Sie bleibt offen, bis du sie schließt (PANIC-Button oben). <b>Echtes Geld auf Mainnet.</b> Verbinde dich zuerst unter Settings.</div>
+              <div class="setinline" style="margin-top:10px">
+                <button class="btn primary" id="liveTestBtn" onclick="liveTestOrder()">🧪 BTC Long · ~10 $ Margin öffnen</button>
+              </div>
+              <div class="liveerr" id="liveTestErr" style="display:none;margin-top:10px"></div>
+            </div>
+          </section>
           <section class="panel" id="livePos"><header class="phead"><span class="wlabel">Live Positionen</span></header><div class="state small">…</div></section>
           <div class="vgrid">
             <section class="panel" id="liveLog"><header class="phead"><span class="wlabel">Engine-Log</span></header><div class="state small">…</div></section>
@@ -1902,6 +1912,20 @@ async function livePanic() {
   if (!confirm("PANIC: Engine sofort ausschalten UND alle vom Bot eröffneten Live-Positionen zu Marktpreis schließen?")) return;
   try { await fetch("/live_flatten?token=" + encodeURIComponent(DASH_TOKEN), { method: "POST" }); } catch (e) {}
   const sw = document.getElementById("liveSwitch"); if (sw) sw.checked = false;
+}
+async function liveTestOrder() {
+  if (!confirm("ECHTES GELD auf Mainnet: Jetzt eine echte BTC-Long-Order mit ~10 $ Margin auf deinem verbundenen Konto öffnen?\n\nSie bleibt offen, bis du sie schließt (PANIC-Button). Wirklich senden?")) return;
+  const err = document.getElementById("liveTestErr");
+  const btn = document.getElementById("liveTestBtn"); if (btn) btn.disabled = true;
+  try {
+    const r = await fetch("/live_test_order?token=" + encodeURIComponent(DASH_TOKEN), {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "coin=BTC&side=long&margin=10" });
+    const j = await r.json();
+    if (j.ok) { if (err) err.style.display = "none"; alert("✅ Test-Order gesendet. Sie sollte gleich unter Live Positionen erscheinen. Schließen per PANIC-Button."); }
+    else if (err) { err.style.display = "block"; err.textContent = "⚠️ " + (j.error || "Fehlgeschlagen"); }
+  } catch (e) { if (err) { err.style.display = "block"; err.textContent = "⚠️ Fehler: " + e; } }
+  if (btn) btn.disabled = false;
 }
 /* ---------- data-kraken fetch animation ---------- */
 const OCTO = { raf: 0, last: 0, t: 0, c: null, x: null, W: 0, H: 0, tok: [], spawn: 0 };
