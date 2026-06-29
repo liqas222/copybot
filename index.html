@@ -1764,7 +1764,7 @@ function renderMyAccount(s) {
       } else val.textContent = "—";
     }
     if (box) {
-      if (pts.length >= 2) box.innerHTML = bigChartSvg(pts);
+      if (pts.length >= 2) box.innerHTML = acctChartSvg(pts);
       else box.innerHTML = '<div class="state small">Noch nicht genug Datenpunkte für diesen Zeitraum.</div>';
     }
     const rg = document.getElementById(rangeId);
@@ -2573,6 +2573,61 @@ async function loadModalChart() {
   } catch (e) {
     if (reqId === modalReqId) box.innerHTML = `<div class="state">Couldn't load chart. Try again.</div>`;
   }
+}
+/* Account-value chart: like bigChartSvg but tuned for equity curves —
+   removes single-sample needle spikes (data artifacts) and draws a smooth
+   curve, so the y-axis isn't blown out by one bad reading. Used only in
+   My Account; the coin modal keeps its raw chart. */
+function dropNeedles(pts) {
+  if (pts.length < 3) return pts.slice();
+  const out = [pts[0]];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const a = pts[i - 1].v, b = pts[i].v, c = pts[i + 1].v, baseline = (a + c) / 2;
+    const thr = 0.02 * Math.abs(baseline || 1);   // 2% of value
+    // b pokes out the same way on both sides (local extreme) by >2% -> single-sample spike
+    if ((b - a) * (b - c) > 0 && Math.abs(b - a) > thr && Math.abs(b - c) > thr) {
+      out.push({ t: pts[i].t, v: baseline });
+    } else out.push(pts[i]);
+  }
+  out.push(pts[pts.length - 1]);
+  return out;
+}
+function smoothD(P) {
+  if (P.length < 3) return P.map((p, i) => (i ? "L" : "M") + p.x.toFixed(1) + " " + p.y.toFixed(1)).join(" ");
+  let d = "M" + P[0].x.toFixed(1) + " " + P[0].y.toFixed(1);
+  for (let i = 0; i < P.length - 1; i++) {
+    const p0 = P[i - 1] || P[i], p1 = P[i], p2 = P[i + 1], p3 = P[i + 2] || p2;
+    const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
+    d += " C" + c1x.toFixed(1) + " " + c1y.toFixed(1) + " " + c2x.toFixed(1) + " " + c2y.toFixed(1) + " " + p2.x.toFixed(1) + " " + p2.y.toFixed(1);
+  }
+  return d;
+}
+function acctChartSvg(raw) {
+  const pts = dropNeedles(raw);
+  const W = 900, H = 360, padX = 8, padT = 14, padB = 18;
+  let min = Infinity, max = -Infinity;
+  for (const p of pts) { if (p.v < min) min = p.v; if (p.v > max) max = p.v; }
+  if (max === min) { max += 1; min -= 1; }
+  const pad = (max - min) * 0.08; min -= pad; max += pad;      // breathing room top/bottom
+  const n = pts.length;
+  const X = (i) => padX + (i / (n - 1)) * (W - 2 * padX);
+  const Y = (v) => padT + (1 - (v - min) / (max - min)) * (H - padT - padB);
+  const P = pts.map((p, i) => ({ x: X(i), y: Y(p.v) }));
+  const up = pts[n - 1].v >= pts[0].v, col = up ? "var(--long)" : "var(--short)", gid = up ? "agup" : "agdn";
+  const dline = smoothD(P);
+  const bottom = (H - padB).toFixed(1);
+  const darea = dline + ` L${P[n - 1].x.toFixed(1)} ${bottom} L${P[0].x.toFixed(1)} ${bottom} Z`;
+  let grid = "";
+  for (let g = 0; g <= 4; g++) {
+    const v = min + (max - min) * (g / 4), y = Y(v);
+    grid += `<line x1="${padX}" x2="${W - padX}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,.05)"/>`;
+    grid += `<text x="${W - padX}" y="${(y - 3).toFixed(1)}" fill="#6b7686" font-size="11" text-anchor="end" font-family="monospace">$${fmtP(v)}</text>`;
+  }
+  return `<svg class="bigchart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+    <defs><linearGradient id="${gid}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity="0.22"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>
+    ${grid}<path d="${darea}" fill="url(#${gid})"/><path d="${dline}" fill="none" stroke="${col}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+  </svg>`;
 }
 function bigChartSvg(pts) {
   const W = 900, H = 360, padX = 8, padT = 14, padB = 18;
