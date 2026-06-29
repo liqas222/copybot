@@ -121,7 +121,9 @@ LIVE = {
     "pos": [],               # snapshot of current account positions (for the dashboard)
     "closed": [],            # closed-trade log (for the dashboard)
     "log": [],               # engine event log (for the dashboard)
+    "hist": [],              # [[t_ms, account_value], ...] equity curve for the My-Account chart
 }
+LIVE_HIST_EVERY = 60         # seconds between live equity snapshots for the chart
 
 # Active trading mode — exactly ONE engine may open new trades at a time.
 #   "live"  -> the real-money Live engine may be armed; Smart Money opens nothing.
@@ -1533,7 +1535,7 @@ def live_save_state():
     try:
         owned = [{"dex": k[0], "bare": k[1], "meta": m} for k, m in LIVE["owned"].items()]
         tmp = LIVE_STATE_FILE + ".tmp"
-        json.dump({"owned": owned, "closed": LIVE["closed"][-100:]}, open(tmp, "w"))
+        json.dump({"owned": owned, "closed": LIVE["closed"][-100:], "hist": LIVE["hist"][-3000:]}, open(tmp, "w"))
         os.replace(tmp, LIVE_STATE_FILE)
     except Exception as e:
         print("live_save_state error:", e)
@@ -1545,10 +1547,27 @@ def live_load_state():
         d = json.load(open(LIVE_STATE_FILE))
         LIVE["owned"] = {(o["dex"], o["bare"]): (o.get("meta") or {}) for o in d.get("owned", [])}
         LIVE["closed"] = d.get("closed", []) or []
+        LIVE["hist"] = d.get("hist", []) or []
         if LIVE["owned"] or LIVE["closed"]:
-            print("live_state.json loaded: %d owned, %d closed" % (len(LIVE["owned"]), len(LIVE["closed"])))
+            print("live_state.json loaded: %d owned, %d closed, %d hist" % (len(LIVE["owned"]), len(LIVE["closed"]), len(LIVE["hist"])))
     except Exception as e:
         print("live_load_state error:", e)
+
+def live_snapshot(equity):
+    """Append an accurate account-value point to the live equity curve, at most every
+    LIVE_HIST_EVERY seconds. Skips non-positive/missing readings so a failed API read
+    can never poison the chart."""
+    try:
+        eq = float(equity)
+    except Exception:
+        return
+    if eq <= 0:
+        return
+    h = LIVE["hist"]; nowms = int(time.time() * 1000)
+    if not h or (nowms - h[-1][0]) >= LIVE_HIST_EVERY * 1000:
+        h.append([nowms, round(eq, 2)])
+        if len(h) > 3000:
+            del h[:len(h) - 3000]
 
 def live_init():
     """Lazily import the SDK and build the Exchange from the agent key in config.json.
@@ -1804,6 +1823,7 @@ def live_publish():
             "tp_stock_pct": round(SET["tp_stock"] * 100, 2), "daily_loss_pct": round(DAILY_LOSS_LIMIT * 100, 1),
             "owned": len(LIVE["owned"]), "open_total": len(rows), "pos": rows,
             "closed": LIVE["closed"][-40:][::-1], "log": LIVE["log"][-50:][::-1],
+            "history": LIVE["hist"][-1500:],
         }
 
 def live_tick(ctx):
@@ -1814,6 +1834,16 @@ def live_tick(ctx):
             live_log("⏸ Engine deaktiviert — keine neuen Trades (offene Positionen laufen weiter).", "warn")
             ctx["was_enabled"] = False
         LIVE["ready"] = LIVE["ready"] and bool(LIVE["ex"])
+        # keep an accurate equity curve even while idle: if connected, sample the real
+        # Hyperliquid account value every ~30s (throttled) and snapshot it for the chart.
+        if LIVE["ready"] and LIVE["addr"] and (time.time() - ctx.get("idle_read", 0) >= 30):
+            ctx["idle_read"] = time.time()
+            try:
+                eq = get_unified_value(EXEC_URL, LIVE["addr"])
+                LIVE["equity"] = eq; LIVE["perp_equity"] = eq; LIVE["spot_equity"] = 0.0
+                live_snapshot(eq)
+            except Exception:
+                pass
         live_publish(); return 2
     if not LIVE["ready"]:
         ok, _ = live_init()
@@ -1836,6 +1866,7 @@ def live_tick(ctx):
     # Sizing, kill-switch and headline all use this single number.
     equity = get_unified_value(EXEC_URL, LIVE["addr"])
     LIVE["equity"] = equity; LIVE["perp_equity"] = equity; LIVE["spot_equity"] = 0.0
+    live_snapshot(equity)
     if LIVE["killswitch"]:
         if not LIVE["killed"] and LIVE["day_start_eq"] > 0 and equity <= LIVE["day_start_eq"] * (1 - DAILY_LOSS_LIMIT):
             LIVE["killed"] = True
@@ -1928,9 +1959,14 @@ def run_live():
     live_load_state()   # restore engine-owned positions + closed log across restarts
     ctx = {"known": set(), "based": set(), "miss": {}, "openseen": {}, "close_miss": {},
            "announced": False, "was_enabled": False, "day": None}
+    last_hist_save = 0
     while True:
         try:
             slp = live_tick(ctx)
+            # persist the equity curve periodically so it survives restarts even
+            # when no trades open/close (those paths already save state).
+            if time.time() - last_hist_save >= LIVE_HIST_EVERY:
+                last_hist_save = time.time(); live_save_state()
         except Exception as e:
             LIVE["err"] = str(e); print("live loop error:", e)
             try: live_publish()
