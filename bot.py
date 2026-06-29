@@ -502,23 +502,19 @@ def scaled_tp(base_tp, trader_lev, our_lev):
         pass
     return base_tp
 
-CROSS_DERISK = 0.6      # leverage multiplier applied to a copy of a Cross source (see below)
-
-def copy_lev_tp(base_lev, src_lev, src_mode):
-    """Decide our leverage and take-profit when copying one source position (we trade
-    ISOLATED). Two rules:
-      * If the source runs CROSS *and* uses LESS than our base leverage, its liquidation
-        sits much further away than ours would at the same leverage -> de-risk our copy by
-        ×CROSS_DERISK (e.g. 6× → 4×). A source at >= our base leverage gets no reduction.
-      * Take-profit is ALWAYS 2× the (resulting) leverage, in % ROE (e.g. 4× → 8%, 6× → 12%).
+def copy_lev_tp(base_lev, src_lev):
+    """Decide our leverage and take-profit when copying one source position:
+      * If the source uses LESS than our base leverage (under 6×), match its leverage
+        exactly. Otherwise use our base leverage (cap). Margin mode is irrelevant.
+      * Take-profit is ALWAYS 2× the resulting leverage, in % ROE (e.g. 3× → 6%, 6× → 12%).
     Returns (lev, tp_roe)."""
     lev = base_lev
     try:
         sl = float(src_lev or 0)
     except Exception:
         sl = 0
-    if src_mode == "cross" and sl > 0 and sl < base_lev:
-        lev = max(1, int(round(base_lev * CROSS_DERISK)))
+    if sl > 0 and sl < base_lev:
+        lev = max(1, int(round(sl)))       # match the source's lower leverage
     tp_roe = round(0.02 * lev, 4)          # 2% ROE per 1× leverage == "TP = 2× leverage"
     return lev, tp_roe
 
@@ -1284,13 +1280,13 @@ def smart_consider(coin, w, tr, mids):
             smart_log("⏭️ %s %s von %s — 5 Slots voll" % (coin, w["side"], nm), "skip"); return
         eq = smart_equity(mids)
         margin = eq * SMART_FRAC
-        # de-risk vs a Cross source with lower leverage; TP is always 2× our leverage
-        lev, tp = copy_lev_tp(SMART_LEV, w.get("lev"), w.get("mode"))
+        # match the source's leverage if it's under our base; TP is always 2× leverage
+        lev, tp = copy_lev_tp(SMART_LEV, w.get("lev"))
         sz = (margin * lev) / entry
         SMART["pos"][coin] = {"coin": coin, "side": w["side"], "entry": entry, "lev": lev,
             "margin": margin, "sz": sz, "tp": tp, "src": tr["addr"], "src_name": nm,
             "opened_ms": int(time.time() * 1000), "opened": now_hms(), "peak_roe": 0.0}
-    derisk = " (Cross-Quelle <6× → Hebel reduziert)" if lev < SMART_LEV else ""
+    derisk = " (Hebel an Quelle angepasst)" if lev < SMART_LEV else ""
     smart_log("✅ KOPIERT %s %s · %s · WR %.0f%% · %d× · TP +%.0f%%%s" % (coin, w["side"], nm, tr["wr"], lev, tp * 100, derisk), "copy")
     tg("🧠 SMART ✅ COPIED %s %s · von %s · WR %.0f%% · margin $%.2f · %d× · TP +%.0f%%%s"
        % (coin, w["side"], nm, tr["wr"], margin, lev, tp * 100, derisk))
