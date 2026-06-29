@@ -122,6 +122,7 @@ LIVE = {
     "closed": [],            # closed-trade log (for the dashboard)
     "log": [],               # engine event log (for the dashboard)
     "hist": [],              # [[t_ms, account_value], ...] equity curve for the My-Account chart
+    "builder_ok": False,     # True once the Exchange was built with builder-dex (HIP-3) support
 }
 LIVE_HIST_EVERY = 60         # seconds between live equity snapshots for the chart
 
@@ -1626,11 +1627,34 @@ def live_init():
         return False, LIVE["err"]
     try:
         EXEC_URL = constants.MAINNET_API_URL
-        ex = Exchange(Account.from_key(key), EXEC_URL, account_address=addr)
+        acct = Account.from_key(key)
+        # Build the Exchange with ALL perp dexes so builder-dex (HIP-3) coins like stock
+        # perps ("xyz:SNDK") resolve for orders. If that fails (a dex meta erroring etc.),
+        # fall back to a main-only Exchange so crypto trading still works.
+        ex = None
+        try:
+            dexlist = perp_dexes(EXEC_URL)        # ["", "xyz", ...]; "" = main perp dex
+            ex = Exchange(acct, EXEC_URL, account_address=addr, perp_dexs=dexlist)
+            LIVE["builder_ok"] = True
+        except Exception as be:
+            print("live_init: builder-dex Exchange failed (%s) — falling back to main-only" % be)
+            ex = Exchange(acct, EXEC_URL, account_address=addr)
+            LIVE["builder_ok"] = False
         LIVE["ex"] = ex; LIVE["addr"] = addr; LIVE["ready"] = True; LIVE["err"] = ""
         return True, "ready"
     except Exception as e:
         LIVE["err"] = "Exchange-Init fehlgeschlagen: %s" % e; return False, LIVE["err"]
+
+def live_round_sz(ex, name, sz):
+    """Round an order size to the coin's szDecimals using the Exchange's own loaded meta
+    (works for builder-dex coins too). Falls back to the main-perp meta if unknown."""
+    try:
+        coin = ex.info.name_to_coin[name]
+        asset = ex.info.coin_to_asset[coin]
+        return round(sz, ex.info.asset_to_sz_decimals[asset])
+    except Exception:
+        bare = name.split(":")[1] if ":" in name else name
+        return round_sz(EXEC_URL, bare, sz)
 
 def live_lev():
     return max(1, min(FIXED_LEV, int(LIVE["max_lev"])))
@@ -1712,10 +1736,12 @@ def live_open(w, equity):
     is_cross = (w["mode"] == "cross")
     is_buy = w["szi"] > 0
     coin, mark = w["coin"], (w["mark"] or 0)
+    if w["dex"] and not LIVE.get("builder_ok"):
+        live_note("⏭️ %s (Builder-Dex '%s') — Builder-Support nicht geladen, übersprungen" % (w["bare"], w["dex"]), "skip"); return
     if mark <= 0:
         live_log("⏭️ %s übersprungen — kein Preis" % w["bare"], "skip"); return
     margin = equity * CAPITAL_FRACTION
-    sz = round_sz(EXEC_URL, w["bare"], (margin * lev) / mark)
+    sz = live_round_sz(ex, coin, (margin * lev) / mark)   # dex-aware rounding (builder coins too)
     if sz <= 0:
         live_log("⏭️ %s übersprungen — Größe 0 (zu wenig Kapital?)" % w["bare"], "skip"); return
     try:
@@ -1846,7 +1872,7 @@ def live_publish():
     with LOCK:
         STATE["live"] = {
             "enabled": LIVE["enabled"], "ready": LIVE["ready"], "err": LIVE["err"],
-            "connected": live_has_credentials(), "mode": MODE["v"],
+            "connected": live_has_credentials(), "mode": MODE["v"], "builder_ok": LIVE.get("builder_ok", False),
             "net": LIVE["net"], "addr": LIVE["addr"], "whale": WHALE, "equity": round(LIVE["equity"], 2),
             "perp_equity": round(LIVE["perp_equity"], 2), "spot_equity": round(LIVE["spot_equity"], 2),
             "day_pnl": day_pnl, "killed": LIVE["killed"], "killswitch": LIVE["killswitch"], "max_lev": LIVE["max_lev"],
@@ -1950,15 +1976,18 @@ def live_tick(ctx):
             if miss[key] >= CLOSE_CONFIRM:
                 known.discard(key); miss.pop(key, None)
 
-    # Builder-dex (HIP-3) perps like stock perps on 'xyz' can't be placed via the
-    # standard SDK call -> skip them cleanly (no error spam) instead of crashing.
-    for k in list(whale):
-        if k[0] != "" and k[0] in okdex and k not in known:
-            known.add(k)
-            live_note("⏭️ %s (Builder-Dex '%s') — Stock-/Builder-Perps werden live nicht gehandelt" % (k[1], k[0]), "skip")
+    # Builder-dex (HIP-3) perps (e.g. stock perps on 'xyz') are tradeable ONLY when the
+    # Exchange was built with builder support. If it wasn't, skip them cleanly.
+    if not LIVE.get("builder_ok"):
+        for k in list(whale):
+            if k[0] != "" and k[0] in okdex and k not in known:
+                known.add(k)
+                live_note("⏭️ %s (Builder-Dex '%s') — Builder-Support nicht geladen" % (k[1], k[0]), "skip")
 
-    # confirmed NEW opens -> copy with real orders (MAIN perp dex only)
-    cand = set(k for k in whale if k[0] == "" and "" in okdex and k not in known)
+    # confirmed NEW opens -> copy with real orders. Main perp always; builder dexes too
+    # once builder support is loaded.
+    cand = set(k for k in whale if k[0] in okdex and k not in known
+               and (k[0] == "" or LIVE.get("builder_ok")))
     for k in list(openseen):
         if k not in cand:
             openseen.pop(k, None)
