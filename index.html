@@ -1754,14 +1754,17 @@ function meSliceHist(hist, range) {
 function renderMyAccount(s) {
   const view = document.getElementById("view-me");
   if (!view || !view.classList.contains("active")) return;   // only draw when visible
-  const draw = (chartId, valId, rangeId, which, hist) => {
+  const draw = (chartId, valId, rangeId, which, hist, startVal) => {
     const all = (hist || []).map((p) => ({ t: p[0], v: p[1] })).filter((p) => isFinite(p.v));
     const pts = meSliceHist(hist, meRange[which]);
     const val = document.getElementById(valId), box = document.getElementById(chartId);
     if (val) {
       if (all.length) {
         const cur = all[all.length - 1].v;                       // current value = latest point overall
-        const b = pts.length ? pts[0].v : all[0].v;              // change measured over the selected window
+        // "Alle": measure against the true account start (history is trimmed, so its
+        // first stored point isn't the real start). Other ranges: first point in the window.
+        const b = (meRange[which] === "all" && startVal != null) ? startVal
+                : (pts.length ? pts[0].v : all[0].v);
         const chg = cur - b;
         val.innerHTML = fmtUsdC(cur) + ' · <span class="' + (chg >= 0 ? "pos" : "neg") + '">' + fmtSignedC(chg) + "</span>";
       } else val.textContent = "—";
@@ -1773,8 +1776,8 @@ function renderMyAccount(s) {
     const rg = document.getElementById(rangeId);
     if (rg) rg.querySelectorAll(".rbtn").forEach((b) => b.classList.toggle("on", b.dataset.r === meRange[which]));
   };
-  draw("meLiveChart", "meLiveVal", "meLiveRanges", "live", (s.live || {}).history);
-  draw("meSmartChart", "meSmartVal", "meSmartRanges", "smart", (s.smart || {}).history);
+  draw("meLiveChart", "meLiveVal", "meLiveRanges", "live", (s.live || {}).history, null);
+  draw("meSmartChart", "meSmartVal", "meSmartRanges", "smart", (s.smart || {}).history, (s.smart || {}).start);
 }
 function smShort(a) { return a ? a.slice(0, 6) + "…" + a.slice(-4) : ""; }
 /* ---------- Trading mode (Live vs Smart — only one active) ---------- */
