@@ -585,7 +585,7 @@
           <section class="panel" id="modePanel">
             <header class="phead"><span class="wlabel">Trading-Modus</span><span class="meta" id="modeMeta">—</span></header>
             <div class="pbody">
-              <div class="setnote">Es ist immer nur <b>ein</b> Modus aktiv — Live Trading <b>oder</b> Smart Money, nie beide. Umschalten geht nur, wenn der aktuell aktive Modus keine offenen Positionen mehr hat.</div>
+              <div class="setnote">Smart Money läuft aktuell als <b>Paper</b> und ist <b>immer aktiv</b> (auch parallel zu Live). Dieser Schalter steuert vorerst die <b>Live-Engine</b> (echtes Geld). Sobald Smart Money auf Echtgeld umgestellt wird, läuft nur noch <b>ein</b> Modus gleichzeitig — Umschalten geht dann nur, wenn die Live-Engine keine offenen Positionen mehr hat.</div>
               <div class="modeswitch">
                 <button class="modeopt" id="modeLive" onclick="setMode('live')"><span class="mo-ic">🔴</span><span class="mo-tx">Live Trading</span><span class="mo-sub">echtes Geld</span></button>
                 <button class="modeopt" id="modeSmart" onclick="setMode('smart')"><span class="mo-ic">🧠</span><span class="mo-tx">Smart Money</span><span class="mo-sub">Paper (vorerst)</span></button>
@@ -1726,10 +1726,11 @@ function renderMode(s) {
   if (ms) ms.classList.toggle("on", mode === "smart");
   const meta = document.getElementById("modeMeta");
   if (meta) meta.innerHTML = mode === "live"
-    ? '<span class="pos">🔴 Live aktiv</span>' : '<span class="pos">🧠 Smart Money aktiv</span>';
+    ? '<span class="pos">🔴 Live-Modus</span>' : '<span style="color:var(--muted)">🔴 Live aus</span>';
   const lb = document.getElementById("tileLiveBadge"), sb = document.getElementById("tileSmartBadge");
+  // Live (real money) follows the switch; Smart Money (paper) always runs for now.
   if (lb) lb.innerHTML = mode === "live" ? '<span class="tag-on">aktiv</span>' + (liveOwned ? ' · ' + liveOwned + ' offen' : '') : '<span class="tag-off">aus</span>';
-  if (sb) sb.innerHTML = mode === "smart" ? '<span class="tag-on">aktiv</span>' + (smartOpen ? ' · ' + smartOpen + ' offen' : '') : '<span class="tag-off">aus</span>';
+  if (sb) sb.innerHTML = '<span class="tag-on">läuft</span> · Paper' + (smartOpen ? ' · ' + smartOpen + ' offen' : '');
 }
 async function setMode(mode) {
   if (modeBusy) return;

@@ -1230,8 +1230,9 @@ def smart_record(p, pnl, reason, mids, exitpx=None):
 def smart_consider(coin, w, tr, mids):
     """Decision (option 2): the trader is already top-100 by ROI+win-rate, the coin
     is a liquid main perp -> copy unless we already hold it or are at max slots."""
-    if MODE["v"] != "smart":
-        return            # Smart Money only opens while it is the active mode (mutual-exclusion switch)
+    # NOTE: Smart Money is still PAPER, so it always runs — even alongside the Live
+    # engine. Re-enable this mutual-exclusion guard once Smart Money trades real money:
+    #   if MODE["v"] != "smart": return
     entry = w["mark"] or w["entry"] or 0
     nm = tr["name"] or (tr["addr"][:6] + "…")
     with LOCK:
@@ -1503,10 +1504,10 @@ def set_mode(new):
     cur = MODE["v"]
     if new == cur:
         return True, "ok"
+    # Only the Live engine (real money) blocks a switch while it holds open positions.
+    # Smart Money is paper and runs continuously, so its positions don't block anything.
     if cur == "live" and LIVE.get("owned"):
         return False, "Live-Engine hat noch %d offene Bot-Position(en) — erst schließen (PANIC)." % len(LIVE["owned"])
-    if cur == "smart" and SMART.get("pos"):
-        return False, "Smart Money hat noch %d offene Position(en) — erst schließen." % len(SMART["pos"])
     MODE["v"] = new
     if new != "live":
         LIVE["enabled"] = False          # leaving live -> engine can no longer trade
