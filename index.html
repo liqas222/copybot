@@ -203,6 +203,7 @@
   .mclose:hover { color: var(--text); border-color: #2c3540; }
   .modalchart { padding: 16px 14px 18px; position: relative; }
   .modalchart svg.bigchart { width: 100%; height: 360px; display: block; }
+  .acctchart svg.bigchart { width: 100%; height: 300px; display: block; }
   .mcrosshair { position: absolute; top: 16px; bottom: 18px; width: 1px; background: rgba(255,255,255,.18); display: none; pointer-events: none; }
   .mctip { position: absolute; display: none; pointer-events: none; background: #0d1117; border: 1px solid var(--line2); border-radius: 8px; padding: 6px 9px; font-size: 12px; z-index: 3; white-space: nowrap; }
   .mctip b { display: block; font-family: var(--mono); }
@@ -613,8 +614,13 @@
           </div>
         </section>
         <section class="view" id="view-me">
-          <section class="panel"><header class="phead"><span class="wlabel">My Account</span></header>
-            <div class="pbody"><div class="state small" style="padding:28px 8px;text-align:center">🚧 Wird neu gestaltet.<br><span style="color:var(--muted)">In der Zwischenzeit nutze <b>Live Trading</b>.</span></div></div>
+          <section class="panel" id="meLivePanel">
+            <header class="phead"><span class="wlabel">Live Trading · Account Value</span><span class="meta num" id="meLiveVal">—</span></header>
+            <div class="pbody"><div id="meLiveChart" class="acctchart"><div class="state small">Sammelt sich, sobald du in Settings verbunden bist (Messung alle ~30 s).</div></div></div>
+          </section>
+          <section class="panel" id="meSmartPanel">
+            <header class="phead"><span class="wlabel">Smart Money · Account Value (Paper)</span><span class="meta num" id="meSmartVal">—</span></header>
+            <div class="pbody"><div id="meSmartChart" class="acctchart"><div class="state small">Noch keine Daten.</div></div></div>
           </section>
         </section>
         <section class="view" id="view-smart">
@@ -1701,6 +1707,7 @@ function botBadgeHtml(s) {
 }
 let lastTgOn = null;
 function renderBot(s) {
+  lastBotStatus = s;
   botHist = s.history || [];
   setLed("ledTg", s.tg_on ? true : null);
   botSignals = (s.slots_used || 0) + "/" + (s.max_positions || 5);
@@ -1722,6 +1729,28 @@ function renderBot(s) {
   renderSmart(s.smart || {});
   renderLive(s.live || {});
   renderMode(s);
+  renderMyAccount(s);
+}
+/* ---------- My Account: Live + Smart account-value line charts ---------- */
+function renderMyAccount(s) {
+  const view = document.getElementById("view-me");
+  if (!view || !view.classList.contains("active")) return;   // only draw when visible
+  const draw = (chartId, valId, hist, base) => {
+    const pts = (hist || []).map((p) => ({ t: p[0], v: p[1] })).filter((p) => isFinite(p.v));
+    const val = document.getElementById(valId), box = document.getElementById(chartId);
+    if (val) {
+      if (pts.length) {
+        const cur = pts[pts.length - 1].v, b = base != null ? base : pts[0].v, chg = cur - b;
+        val.innerHTML = fmtUsdC(cur) + ' · <span class="' + (chg >= 0 ? "pos" : "neg") + '">' + fmtSignedC(chg) + "</span>";
+      } else val.textContent = "—";
+    }
+    if (box) {
+      if (pts.length >= 2) box.innerHTML = bigChartSvg(pts);
+      else box.innerHTML = '<div class="state small">Noch nicht genug Datenpunkte — die Kurve füllt sich mit der Zeit.</div>';
+    }
+  };
+  draw("meLiveChart", "meLiveVal", (s.live || {}).history, null);
+  draw("meSmartChart", "meSmartVal", (s.smart || {}).history, (s.smart || {}).start);
 }
 function smShort(a) { return a ? a.slice(0, 6) + "…" + a.slice(-4) : ""; }
 /* ---------- Trading mode (Live vs Smart — only one active) ---------- */
@@ -2590,6 +2619,7 @@ function showView(name) {
     else pgStop();
   }
   if (name === "smart" && typeof scanRadarStart === "function") { setTimeout(scanRadarStart, 0); }
+  if (name === "me" && lastBotStatus) renderMyAccount(lastBotStatus);
 }
 function initNav() {
   document.querySelectorAll(".navitem").forEach((n) => n.addEventListener("click", () => showView(n.dataset.view)));
