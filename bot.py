@@ -123,6 +123,12 @@ LIVE = {
     "log": [],               # engine event log (for the dashboard)
 }
 
+# Active trading mode — exactly ONE engine may open new trades at a time.
+#   "live"  -> the real-money Live engine may be armed; Smart Money opens nothing.
+#   "smart" -> Smart Money opens (paper for now); the Live engine is forced off.
+# A mode switch is only allowed when the CURRENT mode is flat (no open bot positions).
+MODE = {"v": "live"}
+
 # virtual book for paper mode
 PAPER = {"cash": PAPER_START, "pos": {}, "hist": [], "closed": []}   # pos: key(tuple) -> dict; hist: [[t_ms, equity], ...]; closed: [trade dicts]
 HIST_EVERY = 60       # seconds between equity snapshots for the chart
@@ -669,6 +675,7 @@ class Handler(BaseHTTPRequestHandler):
                 st["wallets"] = wallets_payload()
                 st["smart"] = STATE.get("smart", {})
                 st["live"] = STATE.get("live", {})
+                st["mode"] = MODE["v"]
                 st["log"] = STATE["log"][-60:]
             return self._send(200, json.dumps(st))
         return self._send(404, "not found", "text/plain")
@@ -769,11 +776,20 @@ class Handler(BaseHTTPRequestHandler):
             live_save_config()
             tg("🔌 Hyperliquid getrennt — Agent-Key entfernt, Live-Engine aus.")
             return self._send(200, json.dumps({"ok": True, "connected": False}))
+        elif path == "/set_mode":
+            ln = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(ln).decode("utf-8", "ignore") if ln > 0 else ""
+            body = urllib.parse.parse_qs(raw)
+            new = (body.get("mode", [""])[0] or "").strip()
+            ok, msg = set_mode(new)
+            return self._send(200, json.dumps({"ok": ok, "mode": MODE["v"], "error": "" if ok else msg}))
         elif path == "/live_toggle":
             ln = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(ln).decode("utf-8", "ignore") if ln > 0 else ""
             body = urllib.parse.parse_qs(raw)
             want = (body.get("on", [""])[0] or "").strip() == "1"
+            if want and MODE["v"] != "live":
+                return self._send(200, json.dumps({"ok": False, "error": "Modus steht auf Smart Money — erst auf Live umschalten."}))
             if want:
                 ok, msg = live_init()
                 if not ok:
@@ -1214,6 +1230,8 @@ def smart_record(p, pnl, reason, mids, exitpx=None):
 def smart_consider(coin, w, tr, mids):
     """Decision (option 2): the trader is already top-100 by ROI+win-rate, the coin
     is a liquid main perp -> copy unless we already hold it or are at max slots."""
+    if MODE["v"] != "smart":
+        return            # Smart Money only opens while it is the active mode (mutual-exclusion switch)
     entry = w["mark"] or w["entry"] or 0
     nm = tr["name"] or (tr["addr"][:6] + "…")
     with LOCK:
@@ -1407,6 +1425,9 @@ def live_load_config():
         ml = d.get("live_max_lev")
         if ml:
             LIVE["max_lev"] = max(1, min(int(ml), 40))
+        m = d.get("mode")
+        if m in ("live", "smart"):
+            MODE["v"] = m
     except Exception as e:
         print("live_load_config error:", e)
 
@@ -1420,6 +1441,7 @@ def live_save_config():
         d["live_enabled"] = bool(LIVE["enabled"])
         d["live_max_lev"] = int(LIVE["max_lev"])
         d["live_killswitch"] = bool(LIVE["killswitch"])
+        d["mode"] = MODE["v"]
         tmp = CONFIG_FILE + ".tmp"
         json.dump(d, open(tmp, "w"))
         os.replace(tmp, CONFIG_FILE)
@@ -1472,6 +1494,25 @@ def live_clear_credentials():
     LIVE["ex"] = None
     LIVE["addr"] = ""
     LIVE["err"] = ""
+
+def set_mode(new):
+    """Switch the active trading mode. Allowed ONLY when the current mode is flat
+    (no open bot positions) so the two engines can never overlap. Returns (ok, msg)."""
+    if new not in ("live", "smart"):
+        return False, "ungültiger Modus"
+    cur = MODE["v"]
+    if new == cur:
+        return True, "ok"
+    if cur == "live" and LIVE.get("owned"):
+        return False, "Live-Engine hat noch %d offene Bot-Position(en) — erst schließen (PANIC)." % len(LIVE["owned"])
+    if cur == "smart" and SMART.get("pos"):
+        return False, "Smart Money hat noch %d offene Position(en) — erst schließen." % len(SMART["pos"])
+    MODE["v"] = new
+    if new != "live":
+        LIVE["enabled"] = False          # leaving live -> engine can no longer trade
+    live_save_config()
+    tg("🔀 Modus gewechselt → %s" % ("🔴 LIVE (echtes Geld)" if new == "live" else "🧠 Smart Money"))
+    return True, "ok"
 
 def live_save_state():
     """Persist which positions the engine opened (owned) + the closed-trade log, so a
@@ -1697,7 +1738,7 @@ def live_publish():
     with LOCK:
         STATE["live"] = {
             "enabled": LIVE["enabled"], "ready": LIVE["ready"], "err": LIVE["err"],
-            "connected": live_has_credentials(),
+            "connected": live_has_credentials(), "mode": MODE["v"],
             "net": LIVE["net"], "addr": LIVE["addr"], "whale": WHALE, "equity": round(LIVE["equity"], 2),
             "perp_equity": round(LIVE["perp_equity"], 2), "spot_equity": round(LIVE["spot_equity"], 2),
             "day_pnl": day_pnl, "killed": LIVE["killed"], "killswitch": LIVE["killswitch"], "max_lev": LIVE["max_lev"],
