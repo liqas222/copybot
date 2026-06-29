@@ -615,11 +615,15 @@
         </section>
         <section class="view" id="view-me">
           <section class="panel" id="meLivePanel">
-            <header class="phead"><span class="wlabel">Live Trading · Account Value</span><span class="meta num" id="meLiveVal">—</span></header>
+            <header class="phead"><span class="wlabel">Live Trading · Account Value</span><span class="meta"><span class="mranges" id="meLiveRanges">
+              <button class="rbtn" data-r="day" onclick="meSetRange('live','day')">24h</button><button class="rbtn" data-r="week" onclick="meSetRange('live','week')">7T</button><button class="rbtn" data-r="month" onclick="meSetRange('live','month')">30T</button><button class="rbtn on" data-r="all" onclick="meSetRange('live','all')">Alle</button>
+            </span> <b class="num" id="meLiveVal">—</b></span></header>
             <div class="pbody"><div id="meLiveChart" class="acctchart"><div class="state small">Sammelt sich, sobald du in Settings verbunden bist (Messung alle ~30 s).</div></div></div>
           </section>
           <section class="panel" id="meSmartPanel">
-            <header class="phead"><span class="wlabel">Smart Money · Account Value (Paper)</span><span class="meta num" id="meSmartVal">—</span></header>
+            <header class="phead"><span class="wlabel">Smart Money · Account Value (Paper)</span><span class="meta"><span class="mranges" id="meSmartRanges">
+              <button class="rbtn" data-r="day" onclick="meSetRange('smart','day')">24h</button><button class="rbtn" data-r="week" onclick="meSetRange('smart','week')">7T</button><button class="rbtn" data-r="month" onclick="meSetRange('smart','month')">30T</button><button class="rbtn on" data-r="all" onclick="meSetRange('smart','all')">Alle</button>
+            </span> <b class="num" id="meSmartVal">—</b></span></header>
             <div class="pbody"><div id="meSmartChart" class="acctchart"><div class="state small">Noch keine Daten.</div></div></div>
           </section>
         </section>
@@ -1732,25 +1736,39 @@ function renderBot(s) {
   renderMyAccount(s);
 }
 /* ---------- My Account: Live + Smart account-value line charts ---------- */
+let meRange = { live: "all", smart: "all" };
+function meSetRange(which, r) { meRange[which] = r; if (lastBotStatus) renderMyAccount(lastBotStatus); }
+function meSliceHist(hist, range) {
+  const h = (hist || []).map((p) => ({ t: p[0], v: p[1] })).filter((p) => isFinite(p.v));
+  if (range === "all" || !h.length) return h;
+  const span = range === "day" ? 86400000 : range === "week" ? 604800000 : 2592000000;
+  const cut = Date.now() - span;
+  return h.filter((p) => p.t >= cut);
+}
 function renderMyAccount(s) {
   const view = document.getElementById("view-me");
   if (!view || !view.classList.contains("active")) return;   // only draw when visible
-  const draw = (chartId, valId, hist, base) => {
-    const pts = (hist || []).map((p) => ({ t: p[0], v: p[1] })).filter((p) => isFinite(p.v));
+  const draw = (chartId, valId, rangeId, which, hist) => {
+    const all = (hist || []).map((p) => ({ t: p[0], v: p[1] })).filter((p) => isFinite(p.v));
+    const pts = meSliceHist(hist, meRange[which]);
     const val = document.getElementById(valId), box = document.getElementById(chartId);
     if (val) {
-      if (pts.length) {
-        const cur = pts[pts.length - 1].v, b = base != null ? base : pts[0].v, chg = cur - b;
+      if (all.length) {
+        const cur = all[all.length - 1].v;                       // current value = latest point overall
+        const b = pts.length ? pts[0].v : all[0].v;              // change measured over the selected window
+        const chg = cur - b;
         val.innerHTML = fmtUsdC(cur) + ' · <span class="' + (chg >= 0 ? "pos" : "neg") + '">' + fmtSignedC(chg) + "</span>";
       } else val.textContent = "—";
     }
     if (box) {
       if (pts.length >= 2) box.innerHTML = bigChartSvg(pts);
-      else box.innerHTML = '<div class="state small">Noch nicht genug Datenpunkte — die Kurve füllt sich mit der Zeit.</div>';
+      else box.innerHTML = '<div class="state small">Noch nicht genug Datenpunkte für diesen Zeitraum.</div>';
     }
+    const rg = document.getElementById(rangeId);
+    if (rg) rg.querySelectorAll(".rbtn").forEach((b) => b.classList.toggle("on", b.dataset.r === meRange[which]));
   };
-  draw("meLiveChart", "meLiveVal", (s.live || {}).history, null);
-  draw("meSmartChart", "meSmartVal", (s.smart || {}).history, (s.smart || {}).start);
+  draw("meLiveChart", "meLiveVal", "meLiveRanges", "live", (s.live || {}).history);
+  draw("meSmartChart", "meSmartVal", "meSmartRanges", "smart", (s.smart || {}).history);
 }
 function smShort(a) { return a ? a.slice(0, 6) + "…" + a.slice(-4) : ""; }
 /* ---------- Trading mode (Live vs Smart — only one active) ---------- */
