@@ -1282,8 +1282,12 @@ def smart_publish(mids):
     for c, p in SMART["pos"].items():
         mk = smart_mark(p, mids); sign = 1 if p["side"] == "LONG" else -1
         upnl = sign * p["sz"] * (mk - p["entry"]); roe = upnl / p["margin"] if p["margin"] else 0
+        lev = p["lev"] or 1
+        # isolated-margin liquidation: where the loss equals the margin (our paper engine
+        # liquidates at pnl <= -margin). long: entry*(1-1/lev), short: entry*(1+1/lev).
+        liq = p["entry"] * (1 - sign / lev) if lev else 0
         pos.append({"coin": c, "side": p["side"], "entry": p["entry"], "mark": mk, "lev": p["lev"],
-            "margin": round(p["margin"], 2), "upnl": round(upnl, 2), "roe": round(roe, 4),
+            "liq": round(liq, 6), "margin": round(p["margin"], 2), "upnl": round(upnl, 2), "roe": round(roe, 4),
             "src_name": p.get("src_name", ""), "src": p.get("src", ""), "opened": p.get("opened_ms", 0)})
     pos.sort(key=lambda x: -abs(x["margin"]))
     wins = sum(1 for t in SMART["closed"] if t["pnl"] > 0); tot = sum(t["pnl"] for t in SMART["closed"]); n = len(SMART["closed"])
