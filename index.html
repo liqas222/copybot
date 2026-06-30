@@ -203,6 +203,13 @@
   .mclose:hover { color: var(--text); border-color: #2c3540; }
   .modalchart { padding: 16px 14px 18px; position: relative; }
   .modalchart svg.bigchart { width: 100%; height: 360px; display: block; }
+  .acctwrap { position: relative; width: 100%; height: 300px; padding-right: 58px; box-sizing: border-box; }
+  .acctsvg { width: 100%; height: 100%; display: block; }
+  .acylabels { position: absolute; top: 0; right: 0; bottom: 0; width: 58px; pointer-events: none; }
+  .acy { position: absolute; right: 8px; transform: translateY(-50%); font-family: var(--mono); font-size: 11px; color: #6b7686; white-space: nowrap; }
+  #smartPos th.poscol, #smartPos td:first-child { width: 84px; white-space: nowrap; }
+  #smartPos th.qcol, #smartPos td.qcell { text-align: left; white-space: nowrap; }
+  #smartPos td.qcell .waddr.srcfull { font-size: 12px; word-break: normal; }
   .mcrosshair { position: absolute; top: 16px; bottom: 18px; width: 1px; background: rgba(255,255,255,.18); display: none; pointer-events: none; }
   .mctip { position: absolute; display: none; pointer-events: none; background: #0d1117; border: 1px solid var(--line2); border-radius: 8px; padding: 6px 9px; font-size: 12px; z-index: 3; white-space: nowrap; }
   .mctip b { display: block; font-family: var(--mono); }
@@ -269,6 +276,36 @@
   .liveerr { margin-top: 12px; padding: 9px 12px; border-radius: 9px; border: 1px solid #5a2630; background: rgba(246,70,93,.08);
     color: #ff8a7e; font-size: 12px; font-family: var(--mono); word-break: break-word; }
   .setlbl { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  .connbox { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 11px;
+    border: 1px solid rgba(0,208,132,.35); background: rgba(0,208,132,.08); }
+  .connbox-ic { font-size: 22px; line-height: 1; }
+  .connbox-hd { font-weight: 600; font-size: 14px; }
+  /* ----- Trading hub: mode switch + tiles ----- */
+  .backbtn { padding: 6px 12px; font-size: 16px; line-height: 1; margin-right: 4px; }
+  .modeswitch { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+  .modeopt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 14px 16px;
+    border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,.03); color: var(--text);
+    cursor: pointer; transition: border-color .15s, background .15s, transform .1s; text-align: left; }
+  .modeopt:hover { transform: translateY(-1px); border-color: rgba(255,255,255,.25); }
+  .modeopt.on { border-color: var(--accent); background: rgba(108,99,255,.12); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .modeopt .mo-ic { font-size: 22px; }
+  .modeopt .mo-tx { font-weight: 600; font-size: 15px; }
+  .modeopt .mo-sub { font-size: 12px; color: var(--muted); }
+  .tilerow { margin-top: 18px; }
+  .tilerow-lbl { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); margin: 0 2px 8px; }
+  .tilegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+  .tile { display: flex; align-items: center; gap: 14px; padding: 16px 18px; border-radius: 14px;
+    border: 1px solid var(--line); background: var(--panel, rgba(255,255,255,.03)); color: var(--text);
+    cursor: pointer; transition: transform .1s, border-color .15s, background .15s; text-align: left; position: relative; }
+  .tile:hover { transform: translateY(-2px); border-color: rgba(255,255,255,.3); background: rgba(255,255,255,.05); }
+  .tile-ic { font-size: 26px; line-height: 1; }
+  .tile-bd { display: flex; flex-direction: column; gap: 2px; }
+  .tile-tx { font-weight: 600; font-size: 15px; }
+  .tile-sub { font-size: 12px; color: var(--muted); }
+  .tile-badge { margin-left: auto; font-size: 11px; }
+  .tile-mode { border-color: rgba(108,99,255,.35); }
+  .tag-on { color: #00d084; font-weight: 600; }
+  .tag-off { color: var(--muted); }
   .setinline { display: flex; gap: 8px; align-items: center; }
   /* iOS-style toggle */
   .switch { position: relative; display: inline-block; width: 58px; height: 32px; flex-shrink: 0; }
@@ -517,14 +554,9 @@
     <aside class="nav">
       <div class="brand"><span class="logo">⬡</span><div class="bwords"><h1>Command Center</h1><span class="bsub">Copy-Trade Intelligence</span></div></div>
       <nav class="navlist" id="navlist">
-        <button class="navitem active" data-view="watch" data-title="Watchlist" data-sub="Tracked wallets &amp; their positions"><span class="ni-ic">🔭</span><span class="ni-tx">Watchlist</span></button>
-        <button class="navitem" data-view="me" data-title="My Account" data-sub="Your live Hyperliquid wallet"><span class="ni-ic">👤</span><span class="ni-tx">My Account</span></button>
-        <button class="navitem" data-view="smart" data-title="Smart Money" data-sub="Top-100 trader tracker · auto-copy"><span class="ni-ic">🧠</span><span class="ni-tx">Smart Money</span></button>
-        <button class="navitem" data-view="live" data-title="Live Trading" data-sub="REAL money · echtes Geld"><span class="ni-ic">🔴</span><span class="ni-tx">Live Trading</span></button>
-        <button class="navitem" data-view="markets" data-title="Markets" data-sub="Live Hyperliquid markets"><span class="ni-ic">📈</span><span class="ni-tx">Markets</span></button>
-        <button class="navitem" data-view="finder" data-title="Whale Finder" data-sub="Top leaderboard traders ranked by performance"><span class="ni-ic">🏆</span><span class="ni-tx">Whale Finder</span></button>
+        <button class="navitem active" data-view="trading" data-title="Trading" data-sub="Live · Smart Money · Tools"><span class="ni-ic">📊</span><span class="ni-tx">Trading</span></button>
         <button class="navitem" data-view="arcade" data-title="Arcade" data-sub="Pump or Dump — kill the boredom"><span class="ni-ic">🎮</span><span class="ni-tx">Arcade</span></button>
-        <button class="navitem" data-view="settings" data-title="Settings" data-sub="Strategy &amp; notifications"><span class="ni-ic">⚙️</span><span class="ni-tx">Settings</span></button>
+        <button class="navitem" data-view="settings" data-title="Settings" data-sub="Hyperliquid-Verbindung &amp; Strategie"><span class="ni-ic">⚙️</span><span class="ni-tx">Settings</span></button>
       </nav>
       <div class="navfoot">
         <div class="leds" id="leds">
@@ -544,7 +576,7 @@
     </aside>
     <main class="content">
       <div class="topbar">
-        <div class="tb-title"><h2 id="viewTitle">Copy-Bot</h2><span class="tb-sub" id="viewSub">Paper account · live mirror</span></div>
+        <div class="tb-title"><button id="backBtn" class="btn backbtn" type="button" style="display:none" onclick="showView('trading')">←</button><div><h2 id="viewTitle">Trading</h2><span class="tb-sub" id="viewSub">Live · Smart Money · Tools</span></div></div>
         <div class="controls"><span id="updated">Loading…</span><button id="editBtn" class="btn" type="button" title="Layout bearbeiten: Panels verschieben, vergrößern, löschen">✏️ Layout</button><button id="editReset" class="btn" type="button" style="display:none" onclick="layoutReset()">↺ Reset</button><button id="soundBtn" class="btn" type="button">🔕 Sound off</button></div>
       </div>
       <div class="ticker"><div class="ticktrack" id="ticktrack"><span class="tkloading">Loading live markets…</span></div></div>
@@ -556,9 +588,49 @@
         <div class="kpi"><span class="kpilabel">Open Positions</span><span class="kpival num" id="kMyPos">—</span><span class="kpisub" id="kMyPosSub">—</span></div>
       </div>
       <div class="views">
+        <section class="view active" id="view-trading">
+          <section class="panel" id="modePanel">
+            <header class="phead"><span class="wlabel">Trading-Modus</span><span class="meta" id="modeMeta">—</span></header>
+            <div class="pbody">
+              <div class="setnote">Smart Money läuft aktuell als <b>Paper</b> und ist <b>immer aktiv</b> (auch parallel zu Live). Dieser Schalter steuert vorerst die <b>Live-Engine</b> (echtes Geld). Sobald Smart Money auf Echtgeld umgestellt wird, läuft nur noch <b>ein</b> Modus gleichzeitig — Umschalten geht dann nur, wenn die Live-Engine keine offenen Positionen mehr hat.</div>
+              <div class="modeswitch">
+                <button class="modeopt" id="modeLive" onclick="setMode('live')"><span class="mo-ic">🔴</span><span class="mo-tx">Live Trading</span><span class="mo-sub">echtes Geld</span></button>
+                <button class="modeopt" id="modeSmart" onclick="setMode('smart')"><span class="mo-ic">🧠</span><span class="mo-tx">Smart Money</span><span class="mo-sub">Paper (vorerst)</span></button>
+              </div>
+              <div class="liveerr" id="modeErr" style="display:none;margin-top:10px"></div>
+            </div>
+          </section>
+          <div class="tilerow"><div class="tilerow-lbl">Modi</div>
+            <div class="tilegrid">
+              <button class="tile tile-mode" onclick="openSub('smart')"><span class="tile-ic">🧠</span><span class="tile-bd"><span class="tile-tx">Smart Money</span><span class="tile-sub">Top-Trader Tracker</span></span><span class="tile-badge" id="tileSmartBadge"></span></button>
+              <button class="tile tile-mode" onclick="openSub('live')"><span class="tile-ic">🔴</span><span class="tile-bd"><span class="tile-tx">Live Trading</span><span class="tile-sub">echtes Geld</span></span><span class="tile-badge" id="tileLiveBadge"></span></button>
+            </div>
+          </div>
+          <div class="tilerow"><div class="tilerow-lbl">Werkzeuge</div>
+            <div class="tilegrid">
+              <button class="tile" onclick="openSub('watch')"><span class="tile-ic">🔭</span><span class="tile-bd"><span class="tile-tx">Watchlist</span><span class="tile-sub">getrackte Wallets</span></span></button>
+              <button class="tile" onclick="openSub('markets')"><span class="tile-ic">📈</span><span class="tile-bd"><span class="tile-tx">Market</span><span class="tile-sub">Live-Märkte</span></span></button>
+              <button class="tile" onclick="openSub('finder')"><span class="tile-ic">🏆</span><span class="tile-bd"><span class="tile-tx">Whale Finder</span><span class="tile-sub">Leaderboard</span></span></button>
+            </div>
+          </div>
+          <div class="tilerow"><div class="tilerow-lbl">Konto</div>
+            <div class="tilegrid">
+              <button class="tile" onclick="openSub('me')"><span class="tile-ic">👤</span><span class="tile-bd"><span class="tile-tx">My Account</span><span class="tile-sub">dein Hyperliquid-Wallet</span></span></button>
+            </div>
+          </div>
+        </section>
         <section class="view" id="view-me">
-          <section class="panel"><header class="phead"><span class="wlabel">My Account</span></header>
-            <div class="pbody"><div class="state small" style="padding:28px 8px;text-align:center">🚧 Wird neu gestaltet.<br><span style="color:var(--muted)">In der Zwischenzeit nutze <b>Live Trading</b>.</span></div></div>
+          <section class="panel" id="meLivePanel">
+            <header class="phead"><span class="wlabel">Live Trading · Account Value</span><span class="meta"><span class="mranges" id="meLiveRanges">
+              <button class="rbtn" data-r="day" onclick="meSetRange('live','day')">24h</button><button class="rbtn" data-r="week" onclick="meSetRange('live','week')">7T</button><button class="rbtn" data-r="month" onclick="meSetRange('live','month')">30T</button><button class="rbtn on" data-r="all" onclick="meSetRange('live','all')">Alle</button>
+            </span> <b class="num" id="meLiveVal">—</b></span></header>
+            <div class="pbody"><div id="meLiveChart" class="acctchart"><div class="state small">Sammelt sich, sobald du in Settings verbunden bist (Messung alle ~30 s).</div></div></div>
+          </section>
+          <section class="panel" id="meSmartPanel">
+            <header class="phead"><span class="wlabel">Smart Money · Account Value (Paper)</span><span class="meta"><span class="mranges" id="meSmartRanges">
+              <button class="rbtn" data-r="day" onclick="meSetRange('smart','day')">24h</button><button class="rbtn" data-r="week" onclick="meSetRange('smart','week')">7T</button><button class="rbtn" data-r="month" onclick="meSetRange('smart','month')">30T</button><button class="rbtn on" data-r="all" onclick="meSetRange('smart','all')">Alle</button>
+            </span> <b class="num" id="meSmartVal">—</b></span></header>
+            <div class="pbody"><div id="meSmartChart" class="acctchart"><div class="state small">Noch keine Daten.</div></div></div>
           </section>
         </section>
         <section class="view" id="view-smart">
@@ -566,13 +638,6 @@
             <section class="panel" id="smartPort"><header class="phead"><span class="wlabel">Smart Money · Paper</span></header><div class="state small">Lädt… (Engine startet beim Server-Start)</div></section>
             <div class="smartstack">
               <section class="panel" id="smartSignals"><header class="phead"><span class="wlabel">Decision Feed</span></header><div class="state small">…</div></section>
-              <section class="panel" id="smartScan">
-                <header class="phead"><span class="wlabel">Live Trade-Scanner</span><span class="meta"><span class="scancd-h" id="scanCountdown">…</span></span></header>
-                <div class="scanocto-wrap">
-                  <canvas id="scanOcto"></canvas>
-                  <div class="scanocto-status" id="scanOctoStatus">Tastet Trader-Positionen ab…</div>
-                </div>
-              </section>
             </div>
           </div>
           <section class="panel" id="smartPos"><header class="phead"><span class="wlabel">Open Positions</span></header><div class="state small">…</div></section>
@@ -580,7 +645,7 @@
           <section class="panel" id="smartTop"><header class="phead"><span class="wlabel">Tracked Top Traders</span></header><div class="state small">…</div></section>
         </section>
         <section class="view" id="view-live">
-          <div class="liverisk">⚠️ <b>Echtes Geld.</b> Diese Engine platziert echte Orders auf Hyperliquid Mainnet mit deinem Kapital — gleiche Regeln wie der Copy-Bot (1/5 Equity pro Trade · max 5 Positionen · TP pro Assetklasse · −25 % Tages-Kill-Switch · kein Stop-Loss). Sie ist standardmäßig <b>AUS</b> und tradet nur, solange du sie hier scharf schaltest.</div>
+          <div class="liverisk">⚠️ <b>Echtes Geld.</b> Diese Engine platziert echte Orders auf Hyperliquid Mainnet mit deinem Kapital — gleiche Regeln wie der Copy-Bot (1/5 Equity pro Trade · max 5 Positionen · TP pro Assetklasse · −25 % Tages-Kill-Switch · kein Stop-Loss). Sie ist standardmäßig <b>AUS</b> und tradet nur, solange du sie hier scharf schaltest. Verbinde dein Konto unter <b>Settings → Hyperliquid verbinden</b>.</div>
           <div class="vgrid">
             <section class="panel" id="liveCtl">
               <header class="phead"><span class="wlabel">Live-Engine</span><span class="meta" id="liveNet">—</span></header>
@@ -617,7 +682,16 @@
                     <input id="liveMaxLev" class="tgin" type="number" min="1" max="40" step="1" style="max-width:90px">
                     <button class="btn" onclick="liveSaveSettings()">Speichern</button>
                   </div>
-                  <div class="setnote">Live-Hebel = min(Copy-Bot-Hebel, dieser Cap). Aktuell effektiv: <b id="liveEffLev">—</b>×. Take-Profit &amp; Tracking-Wallet änderst du in den normalen <b>Settings</b>.</div>
+                  <div class="setnote">Live-Hebel = min(Copy-Bot-Hebel, dieser Cap). Aktuell effektiv: <b id="liveEffLev">—</b>×.</div>
+                </div>
+                <div class="setrow" style="margin-top:14px">
+                  <label class="setlbl">Take-Profit (gilt für neue Trades)</label>
+                  <div class="setinline">
+                    <span class="ingrp"><input id="tpCrypto" class="numin" type="number" min="1" max="1000" step="1" style="max-width:80px"><span class="unit">% Crypto</span></span>
+                    <span class="ingrp"><input id="tpStock" class="numin" type="number" min="1" max="1000" step="1" style="max-width:80px"><span class="unit">% Stocks</span></span>
+                    <button class="btn" onclick="saveTp()">Speichern</button>
+                  </div>
+                  <div id="tpMsg" class="setnote">Gilt für <b>neue</b> Trades. Offene Positionen behalten ihren TP.</div>
                 </div>
                 <div class="livemaster" style="margin-top:14px">
                   <div><div class="livemlabel" style="font-size:14px">Tages-Kill-Switch (−25 %)</div><div class="setnote" id="liveKsNote" style="margin-top:2px">Stoppt neue Trades bei −25 % Tagesverlust.</div></div>
@@ -627,13 +701,23 @@
               </div>
             </section>
           </div>
+          <section class="panel" id="liveTest">
+            <header class="phead"><span class="wlabel">Test-Trade</span><span class="meta">Funktionsprüfung</span></header>
+            <div class="pbody">
+              <div class="setnote">Öffnet eine <b>echte</b> kleine Order auf deinem verbundenen Konto, um den Order-Pfad zu prüfen. Sie bleibt offen, bis du sie schließt (PANIC-Button oben). <b>Echtes Geld auf Mainnet.</b> Verbinde dich zuerst unter Settings.</div>
+              <div class="setinline" style="margin-top:10px">
+                <button class="btn primary" id="liveTestBtn" onclick="liveTestOrder()">🧪 BTC Long · ~10 $ Margin öffnen</button>
+              </div>
+              <div class="liveerr" id="liveTestErr" style="display:none;margin-top:10px"></div>
+            </div>
+          </section>
           <section class="panel" id="livePos"><header class="phead"><span class="wlabel">Live Positionen</span></header><div class="state small">…</div></section>
           <div class="vgrid">
             <section class="panel" id="liveLog"><header class="phead"><span class="wlabel">Engine-Log</span></header><div class="state small">…</div></section>
             <section class="panel" id="liveClosed"><header class="phead"><span class="wlabel">Geschlossene Live-Trades</span></header><div class="state small">…</div></section>
           </div>
         </section>
-        <section class="view active" id="view-watch">
+        <section class="view" id="view-watch">
           <section class="panel" id="trackPanel">
             <header class="phead"><span class="wlabel">Tracked Wallets</span><span class="meta" id="trackCount"></span></header>
             <div class="pbody">
@@ -786,8 +870,37 @@
           </section>
         </section>
         <section class="view" id="view-settings">
+          <section class="panel" id="setConn">
+            <header class="phead"><span class="wlabel">Hyperliquid verbinden</span><span class="meta" id="setConnState">—</span></header>
+            <div class="pbody">
+              <div id="setConnForm">
+                <div class="setnote">Hier hinterlegst du alles, was der Bot zum eigenständigen Traden braucht. Du brauchst einen <b>Agent-/API-Wallet-Key</b> (trade-only, kann <b>nicht</b> abheben). Erstelle ihn auf <a href="https://app.hyperliquid.xyz/API" target="_blank" rel="noopener">app.hyperliquid.xyz/API</a> → „Generate" und kopiere den privaten Key. Der Key wird nur auf dem Server gespeichert (gitignored) und nie im Browser angezeigt.</div>
+                <div class="setrow" style="margin-top:12px">
+                  <label class="setlbl">Account-Adresse (dein Haupt-Wallet, 0x…)</label>
+                  <input id="setAccAddr" class="tgin" type="text" autocomplete="off" spellcheck="false" placeholder="0x… (40 Zeichen)" style="width:100%">
+                </div>
+                <div class="setrow" style="margin-top:10px">
+                  <label class="setlbl">Agent-Key (privater Key des API-Wallets)</label>
+                  <input id="setAgentKey" class="tgin" type="password" autocomplete="off" spellcheck="false" placeholder="0x… (64 Zeichen)" style="width:100%">
+                </div>
+                <div class="setinline" style="margin-top:12px">
+                  <button class="btn primary" id="setConnBtn" onclick="connConnect('set')">🔗 Verbinden</button>
+                </div>
+                <div class="liveerr" id="setConnErr" style="display:none;margin-top:10px"></div>
+              </div>
+              <div id="setConnDone" style="display:none">
+                <div class="connbox">
+                  <div class="connbox-ic">🟢</div>
+                  <div class="connbox-tx">
+                    <div class="connbox-hd">Hyperliquid verbunden</div>
+                    <div class="setnote" style="margin:2px 0 0">Account <b id="setConnAddr">—</b> · <span id="setConnReady">—</span></div>
+                  </div>
+                </div>
+                <button class="btn danger" onclick="connDisconnect('set')" style="width:100%;margin-top:12px">🔌 Verbindung trennen</button>
+              </div>
+            </div>
+          </section>
           <div class="vgrid">
-            <section class="panel" id="botSettings"><header class="phead"><span class="wlabel">Copy-Bot Settings</span></header><div class="state small">…</div></section>
             <section class="panel" id="botTg"><header class="phead"><span class="wlabel">Notifications</span></header><div class="state small">…</div></section>
           </div>
         </section>
@@ -1574,12 +1687,11 @@ async function pollBot() {
     setLed("ledBot", true);
   } catch (e) {
     setLed("ledBot", false); setLed("ledTg", null);
-    botSettingsReady = false; lastTgOn = null; botPosEmpty = false;
+    lastTgOn = null; botPosEmpty = false;
     botMyClosed = null; renderMyClosed();   // bot offline -> fall back to the fills estimate
     const off = (id, title) => { const x = document.getElementById(id); if (x) { x.innerHTML = `<header class="phead"><span class="wlabel">${title}</span></header><div class="state small">\u2014</div>`; x.dataset.built = ""; } };
     const port = document.getElementById("botPortfolio");
     if (port) port.innerHTML = `<header class="phead"><span class="wlabel">Copy-Bot</span><span class="botbadge off">\u26aa Offline</span></header><div class="state small">Bot offline \u2014 appears as soon as the bot is running and serving this page.</div>`;
-    off("botSettings", "Copy-Bot Settings");
     off("botClosed", "Closed Trades");
     off("botTg", "Notifications");
     off("botPerf", "Copy-Bot Performance");
@@ -1605,6 +1717,7 @@ function botBadgeHtml(s) {
 }
 let lastTgOn = null;
 function renderBot(s) {
+  lastBotStatus = s;
   botHist = s.history || [];
   setLed("ledTg", s.tg_on ? true : null);
   botSignals = (s.slots_used || 0) + "/" + (s.max_positions || 5);
@@ -1617,7 +1730,6 @@ function renderBot(s) {
     }
   }
   renderBotPortfolio(s);
-  renderBotSettings(s);
   renderBotTg(s);
   renderBotPerf(s);
   renderBotPositions(s);
@@ -1626,8 +1738,80 @@ function renderBot(s) {
   renderMyClosed();
   renderSmart(s.smart || {});
   renderLive(s.live || {});
+  renderMode(s);
+  renderMyAccount(s);
+}
+/* ---------- My Account: Live + Smart account-value line charts ---------- */
+let meRange = { live: "all", smart: "all" };
+function meSetRange(which, r) { meRange[which] = r; if (lastBotStatus) renderMyAccount(lastBotStatus); }
+function meSliceHist(hist, range) {
+  const h = (hist || []).map((p) => ({ t: p[0], v: p[1] })).filter((p) => isFinite(p.v));
+  if (range === "all" || !h.length) return h;
+  const span = range === "day" ? 86400000 : range === "week" ? 604800000 : 2592000000;
+  const cut = Date.now() - span;
+  return h.filter((p) => p.t >= cut);
+}
+function renderMyAccount(s) {
+  const view = document.getElementById("view-me");
+  if (!view || !view.classList.contains("active")) return;   // only draw when visible
+  const draw = (chartId, valId, rangeId, which, hist, startVal) => {
+    const all = (hist || []).map((p) => ({ t: p[0], v: p[1] })).filter((p) => isFinite(p.v));
+    const pts = meSliceHist(hist, meRange[which]);
+    const val = document.getElementById(valId), box = document.getElementById(chartId);
+    if (val) {
+      if (all.length) {
+        const cur = all[all.length - 1].v;                       // current value = latest point overall
+        // "Alle": measure against the true account start (history is trimmed, so its
+        // first stored point isn't the real start). Other ranges: first point in the window.
+        const b = (meRange[which] === "all" && startVal != null) ? startVal
+                : (pts.length ? pts[0].v : all[0].v);
+        const chg = cur - b;
+        val.innerHTML = fmtUsdC(cur) + ' · <span class="' + (chg >= 0 ? "pos" : "neg") + '">' + fmtSignedC(chg) + "</span>";
+      } else val.textContent = "—";
+    }
+    if (box) {
+      if (pts.length >= 2) box.innerHTML = acctChartSvg(pts);
+      else box.innerHTML = '<div class="state small">Noch nicht genug Datenpunkte für diesen Zeitraum.</div>';
+    }
+    const rg = document.getElementById(rangeId);
+    if (rg) rg.querySelectorAll(".rbtn").forEach((b) => b.classList.toggle("on", b.dataset.r === meRange[which]));
+  };
+  draw("meLiveChart", "meLiveVal", "meLiveRanges", "live", (s.live || {}).history, null);
+  draw("meSmartChart", "meSmartVal", "meSmartRanges", "smart", (s.smart || {}).history, (s.smart || {}).start);
 }
 function smShort(a) { return a ? a.slice(0, 6) + "…" + a.slice(-4) : ""; }
+/* ---------- Trading mode (Live vs Smart — only one active) ---------- */
+let modeBusy = false;
+function renderMode(s) {
+  const mode = (s.live && s.live.mode) || s.mode || "live";
+  const liveOwned = (s.live && s.live.owned) || 0;
+  const smartOpen = ((s.smart && s.smart.pos) || []).length;
+  const ml = document.getElementById("modeLive"), ms = document.getElementById("modeSmart");
+  if (ml) ml.classList.toggle("on", mode === "live");
+  if (ms) ms.classList.toggle("on", mode === "smart");
+  const meta = document.getElementById("modeMeta");
+  if (meta) meta.innerHTML = mode === "live"
+    ? '<span class="pos">🔴 Live-Modus</span>' : '<span style="color:var(--muted)">🔴 Live aus</span>';
+  const lb = document.getElementById("tileLiveBadge"), sb = document.getElementById("tileSmartBadge");
+  // Live (real money) follows the switch; Smart Money (paper) always runs for now.
+  if (lb) lb.innerHTML = mode === "live" ? '<span class="tag-on">aktiv</span>' + (liveOwned ? ' · ' + liveOwned + ' offen' : '') : '<span class="tag-off">aus</span>';
+  if (sb) sb.innerHTML = '<span class="tag-on">läuft</span> · Paper' + (smartOpen ? ' · ' + smartOpen + ' offen' : '');
+}
+async function setMode(mode) {
+  if (modeBusy) return;
+  if (mode === "smart" && !confirm("Auf Smart Money umschalten? Die Live-Engine wird dabei ausgeschaltet (offene Bot-Positionen müssen vorher geschlossen sein). Smart Money handelt aktuell als Paper.")) return;
+  if (mode === "live" && !confirm("Auf Live Trading umschalten? Ab dann kann nur die Live-Engine (echtes Geld) traden, Smart Money pausiert.")) return;
+  modeBusy = true;
+  const err = document.getElementById("modeErr");
+  try {
+    const r = await fetch("/set_mode?token=" + encodeURIComponent(DASH_TOKEN), {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "mode=" + encodeURIComponent(mode) });
+    const j = await r.json();
+    if (j.ok) { if (err) err.style.display = "none"; }
+    else if (err) { err.style.display = "block"; err.textContent = "⚠️ " + (j.error || "Wechsel nicht möglich"); }
+  } catch (e) { if (err) { err.style.display = "block"; err.textContent = "⚠️ Fehler: " + e; } }
+  setTimeout(() => { modeBusy = false; }, 800);
+}
 /* ---------- Live Trading (real money) ---------- */
 let liveSwitchBusy = false;
 function renderLive(lv) {
@@ -1641,6 +1825,8 @@ function renderLive(lv) {
   }
   const net = document.getElementById("liveNet");
   if (net) net.textContent = lv.net ? "🔴 " + lv.net : "—";
+  // connection state (Hyperliquid agent-key present on the server) — managed in Settings
+  renderConn("set", lv);
   const setT = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
   const money = (id, v) => { const e = document.getElementById(id); if (!e) return; if (v == null) { e.textContent = "—"; return; } e.textContent = fmtSignedC(v); e.classList.toggle("pos", v >= 0); e.classList.toggle("neg", v < 0); };
   setT("liveEquity", lv.equity != null ? fmtUsdC(lv.equity) : "—");
@@ -1661,6 +1847,10 @@ function renderLive(lv) {
   setT("liveMaxPos", lv.max_positions != null ? lv.max_positions : "—");
   setT("liveTpC", lv.tp_crypto_pct != null ? "+" + lv.tp_crypto_pct + "%" : "—");
   setT("liveTpS", lv.tp_stock_pct != null ? "+" + lv.tp_stock_pct + "%" : "—");
+  const tcIn = document.getElementById("tpCrypto");
+  if (tcIn && document.activeElement !== tcIn && lv.tp_crypto_pct != null) tcIn.value = lv.tp_crypto_pct;
+  const tsIn = document.getElementById("tpStock");
+  if (tsIn && document.activeElement !== tsIn && lv.tp_stock_pct != null) tsIn.value = lv.tp_stock_pct;
   setT("liveDaily", lv.daily_loss_pct != null ? "−" + lv.daily_loss_pct + "%" : "—");
   setT("liveEffLev", lv.lev != null ? lv.lev : "—");
   const lvl = document.getElementById("liveMaxLev");
@@ -1693,6 +1883,58 @@ function renderLive(lv) {
     const rows = (lv.closed || []).map((t) => { const w = (t.pnl || 0) >= 0; return `<div class="logrow"><span class="logt">${esc(t.side || "")} ${esc(t.coin || "")}</span> <span class="num ${w ? "pos" : "neg"}">${fmtSignedC(t.pnl)}</span> · <span class="num ${w ? "pos" : "neg"}">${((t.roe || 0) * 100).toFixed(1)}%</span> · <span style="color:var(--muted)">${esc(t.reason || "")}</span></div>`; }).join("") || `<div class="state small">Noch keine geschlossenen Live-Trades.</div>`;
     cl.innerHTML = `<header class="phead"><span class="wlabel">Geschlossene Live-Trades</span></header><div class="pbody"><div class="botlog tall">${rows}</div></div>`;
   }
+}
+/* Hyperliquid connect — shared by Live + Smart Money (one account, one connection).
+   `p` is the element-id prefix ("live" or "sm"). When connected, the input form
+   collapses to a compact "verbunden" box with a disconnect button. */
+function renderConn(p, lv) {
+  const st = document.getElementById(p + "ConnState");
+  if (!st) return;
+  const form = document.getElementById(p + "ConnForm");
+  const done = document.getElementById(p + "ConnDone");
+  if (lv.connected) {
+    st.innerHTML = lv.ready ? '<span class="pos">🟢 verbunden</span>' : '<span class="neg">⚠️ nicht bereit</span>';
+    if (form) form.style.display = "none";
+    if (done) done.style.display = "";
+    const a = document.getElementById(p + "ConnAddr"); if (a) a.textContent = lv.addr ? smShort(lv.addr) : "—";
+    const dr = document.getElementById(p + "ConnReady");
+    if (dr) dr.innerHTML = lv.ready ? '<span class="pos">bereit zum Traden</span>' : '<span class="neg">⚠️ ' + esc(lv.err || "nicht bereit") + '</span>';
+  } else {
+    st.innerHTML = '<span style="color:var(--muted)">⚪ nicht verbunden</span>';
+    if (form) form.style.display = "";
+    if (done) done.style.display = "none";
+  }
+}
+async function connConnect(p) {
+  const addr = (document.getElementById(p + "AccAddr").value || "").trim();
+  const key = (document.getElementById(p + "AgentKey").value || "").trim();
+  const err = document.getElementById(p + "ConnErr");
+  const show = (m) => { if (err) { err.style.display = "block"; err.textContent = "⚠️ " + m; } };
+  if (!addr || !key) { show("Account-Adresse und Agent-Key eingeben."); return; }
+  const btn = document.getElementById(p + "ConnBtn"); if (btn) btn.disabled = true;
+  try {
+    const r = await fetch("/live_connect?token=" + encodeURIComponent(DASH_TOKEN), {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "account_address=" + encodeURIComponent(addr) + "&agent_key=" + encodeURIComponent(key) });
+    const j = await r.json();
+    if (j.ok) {
+      if (err) err.style.display = "none";
+      document.getElementById(p + "AgentKey").value = "";   // never keep the key in the field
+      renderConn(p, { connected: true, ready: j.ready, addr: j.addr });
+      alert("✅ Hyperliquid verbunden.");
+    } else { show(j.error || "Verbinden fehlgeschlagen."); }
+  } catch (e) { show("Fehler: " + e); }
+  if (btn) btn.disabled = false;
+}
+async function connDisconnect(p) {
+  if (!confirm("Hyperliquid trennen? Der Agent-Key wird vom Server gelöscht und die Live-Engine ausgeschaltet. Offene Positionen bleiben unverändert.")) return;
+  try {
+    await fetch("/live_disconnect?token=" + encodeURIComponent(DASH_TOKEN), { method: "POST" });
+    const a = document.getElementById("setAccAddr"); if (a) a.value = "";
+    const k = document.getElementById("setAgentKey"); if (k) k.value = "";
+    renderConn("set", { connected: false });
+    const sw = document.getElementById("liveSwitch"); if (sw) sw.checked = false;
+  } catch (e) { alert("Fehler: " + e); }
 }
 async function liveToggle(on) {
   if (on && !confirm("ECHTES GELD: Die Live-Engine wird scharf geschaltet und tradet ab sofort automatisch mit deinem echten Kapital auf Hyperliquid Mainnet.\n\nGleiche Regeln wie der Copy-Bot. Wirklich aktivieren?")) {
@@ -1729,6 +1971,20 @@ async function livePanic() {
   if (!confirm("PANIC: Engine sofort ausschalten UND alle vom Bot eröffneten Live-Positionen zu Marktpreis schließen?")) return;
   try { await fetch("/live_flatten?token=" + encodeURIComponent(DASH_TOKEN), { method: "POST" }); } catch (e) {}
   const sw = document.getElementById("liveSwitch"); if (sw) sw.checked = false;
+}
+async function liveTestOrder() {
+  if (!confirm("ECHTES GELD auf Mainnet: Jetzt eine echte BTC-Long-Order mit ~10 $ Margin auf deinem verbundenen Konto öffnen?\n\nSie bleibt offen, bis du sie schließt (PANIC-Button). Wirklich senden?")) return;
+  const err = document.getElementById("liveTestErr");
+  const btn = document.getElementById("liveTestBtn"); if (btn) btn.disabled = true;
+  try {
+    const r = await fetch("/live_test_order?token=" + encodeURIComponent(DASH_TOKEN), {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "coin=BTC&side=long&margin=10" });
+    const j = await r.json();
+    if (j.ok) { if (err) err.style.display = "none"; alert("✅ Test-Order gesendet. Sie sollte gleich unter Live Positionen erscheinen. Schließen per PANIC-Button."); }
+    else if (err) { err.style.display = "block"; err.textContent = "⚠️ " + (j.error || "Fehlgeschlagen"); }
+  } catch (e) { if (err) { err.style.display = "block"; err.textContent = "⚠️ Fehler: " + e; } }
+  if (btn) btn.disabled = false;
 }
 /* ---------- data-kraken fetch animation ---------- */
 const OCTO = { raf: 0, last: 0, t: 0, c: null, x: null, W: 0, H: 0, tok: [], spawn: 0 };
@@ -1915,7 +2171,6 @@ function renderSmart(sm) {
   smartNextMs = sm.next_build_ms || 0;
   smartCountdownTick();
   scanRadarStart();
-  scanOctoStart();
   renderSmartAux(sm);
 }
 function renderSmartAux(sm) {
@@ -1928,13 +2183,18 @@ function renderSmartAux(sm) {
   if (pp) {
     const rows = (sm.pos || []).map((p) => {
       const up = (p.upnl || 0) >= 0;
+      const nm = p.src_name || "";
+      const srcCell = p.src
+        ? `<a class="waddr srcfull" href="https://hypurrscan.io/address/${esc(p.src)}" target="_blank" rel="noopener">${nm && !nm.endsWith("…") ? esc(nm) + " · " : ""}${esc(p.src)}</a>`
+        : `<span style="color:var(--muted)">${esc(nm) || "—"}</span>`;
       return `<tr><td><span class="side ${p.side === "LONG" ? "long" : "short"}">${p.side}</span> ${esc(p.coin)}</td>
-        <td class="num">${esc(p.src_name || "")}</td><td class="num">$${fmtP(p.entry)}</td><td class="num">$${fmtP(p.mark)}</td>
+        <td class="qcell">${srcCell}</td><td class="num">$${fmtP(p.entry)}</td><td class="num">$${fmtP(p.mark)}</td>
+        <td class="num">${(p.lev || 0)}×</td><td class="num neg">${p.liq ? "$" + fmtP(p.liq) : "—"}</td>
         <td class="num">${fmtUsdC(p.margin || 0)}</td>
         <td class="num ${up ? "pos" : "neg"}">${fmtSignedC(p.upnl)}</td><td class="num ${up ? "pos" : "neg"}">${((p.roe || 0) * 100).toFixed(1)}%</td></tr>`;
     }).join("");
     pp.innerHTML = `<header class="phead"><span class="wlabel">Open Positions</span><span class="meta">${(sm.pos || []).length}</span></header>
-      <div class="pbody">${rows ? `<div class="tablewrap"><table><thead><tr><th>Position</th><th>Quelle</th><th>Entry</th><th>Mark</th><th>Margin</th><th>uPnL</th><th>ROE</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="state small">Keine offenen Positionen.</div>`}</div>`;
+      <div class="pbody">${rows ? `<div class="tablewrap"><table><thead><tr><th class="poscol">Position</th><th class="qcol">Quelle</th><th>Entry</th><th>Mark</th><th>Lev</th><th>Liq.</th><th>Margin</th><th>uPnL</th><th>ROE</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="state small">Keine offenen Positionen.</div>`}</div>`;
   }
   const tp = document.getElementById("smartTop");
   if (tp) {
@@ -2100,44 +2360,6 @@ async function botCmd(cmd) {
 }
 function botFlatten() { if (confirm("Close ALL positions?")) botCmd("flatten"); }
 function botAdopt() { if (confirm("Copy currently-open whale positions you don't hold yet, at the whale's entry price?")) botCmd("adopt"); }
-let botSettingsReady = false;
-// Update the live strategy summary (called every poll AND right after saving) without rebuilding inputs.
-function setStratSummary(s, c, st) {
-  const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
-  set("stratLev", s.fixed_lev != null ? s.fixed_lev + "× (fix)" : "—");
-  set("stratSize", s.capital_pct != null ? s.capital_pct + "% equity" : "—");
-  set("stratMax", s.max_positions || 5);
-  set("stratKill", "−" + (s.daily_loss_pct != null ? s.daily_loss_pct : 25) + "% realized");
-  set("stratTp", "Crypto +" + c + "% · Stocks +" + st + "%");
-}
-function renderBotSettings(s) {
-  const el = document.getElementById("botSettings");
-  if (!el) return;
-  const c = s.tp_crypto_pct != null ? s.tp_crypto_pct : 20;
-  const st = s.tp_stock_pct != null ? s.tp_stock_pct : 20;
-  // Build inputs once (so typing isn't interrupted), but refresh the live summary every poll.
-  if (botSettingsReady && document.getElementById("tpCrypto")) { setStratSummary(s, c, st); return; }
-  el.innerHTML = `<header class="phead"><span class="wlabel">Copy-Bot Settings</span></header>
-    <div class="pbody">
-      <div class="stratbox">
-        <div class="strathd">Active strategy</div>
-        <div class="statrow"><span>Leverage</span><span class="num" id="stratLev">—</span></div>
-        <div class="statrow"><span>Size per trade</span><span class="num" id="stratSize">—</span></div>
-        <div class="statrow"><span>Max positions</span><span class="num" id="stratMax">—</span></div>
-        <div class="statrow"><span>Daily kill-switch</span><span class="num" id="stratKill">—</span></div>
-        <div class="statrow"><span>Take-Profit</span><span class="num" id="stratTp">—</span></div>
-      </div>
-      <div class="setgrp">
-        <div class="setgrphd">Edit Take-Profit</div>
-        <div class="setrow"><label>Crypto</label><span class="ingrp"><input id="tpCrypto" class="numin" type="number" min="1" max="1000" step="1" value="${c}"><span class="unit">% ROE</span></span></div>
-        <div class="setrow"><label>Stocks</label><span class="ingrp"><input id="tpStock" class="numin" type="number" min="1" max="1000" step="1" value="${st}"><span class="unit">% ROE</span></span></div>
-        <button class="btn primary" style="width:100%;margin-top:4px" onclick="saveTp()">✓ Apply</button>
-        <div id="tpMsg" class="setnote">Applies to <b>new</b> trades. Open positions keep their TP.</div>
-      </div>
-    </div>`;
-  botSettingsReady = true;
-  setStratSummary(s, c, st);
-}
 async function saveTp() {
   const c = parseFloat((document.getElementById("tpCrypto") || {}).value);
   const st = parseFloat((document.getElementById("tpStock") || {}).value);
@@ -2359,6 +2581,63 @@ async function loadModalChart() {
     if (reqId === modalReqId) box.innerHTML = `<div class="state">Couldn't load chart. Try again.</div>`;
   }
 }
+/* Account-value chart: like bigChartSvg but tuned for equity curves —
+   removes single-sample needle spikes (data artifacts) and draws a smooth
+   curve, so the y-axis isn't blown out by one bad reading. Used only in
+   My Account; the coin modal keeps its raw chart. */
+function dropNeedles(pts) {
+  if (pts.length < 3) return pts.slice();
+  const out = [pts[0]];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const a = pts[i - 1].v, b = pts[i].v, c = pts[i + 1].v, baseline = (a + c) / 2;
+    const thr = 0.02 * Math.abs(baseline || 1);   // 2% of value
+    // b pokes out the same way on both sides (local extreme) by >2% -> single-sample spike
+    if ((b - a) * (b - c) > 0 && Math.abs(b - a) > thr && Math.abs(b - c) > thr) {
+      out.push({ t: pts[i].t, v: baseline });
+    } else out.push(pts[i]);
+  }
+  out.push(pts[pts.length - 1]);
+  return out;
+}
+function smoothD(P) {
+  if (P.length < 3) return P.map((p, i) => (i ? "L" : "M") + p.x.toFixed(1) + " " + p.y.toFixed(1)).join(" ");
+  let d = "M" + P[0].x.toFixed(1) + " " + P[0].y.toFixed(1);
+  for (let i = 0; i < P.length - 1; i++) {
+    const p0 = P[i - 1] || P[i], p1 = P[i], p2 = P[i + 1], p3 = P[i + 2] || p2;
+    const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
+    d += " C" + c1x.toFixed(1) + " " + c1y.toFixed(1) + " " + c2x.toFixed(1) + " " + c2y.toFixed(1) + " " + p2.x.toFixed(1) + " " + p2.y.toFixed(1);
+  }
+  return d;
+}
+function acctChartSvg(raw) {
+  const pts = dropNeedles(raw);
+  const W = 1000, H = 300, padX = 6, padT = 10, padB = 10;
+  let min = Infinity, max = -Infinity;
+  for (const p of pts) { if (p.v < min) min = p.v; if (p.v > max) max = p.v; }
+  if (max === min) { max += 1; min -= 1; }
+  const pad = (max - min) * 0.08; min -= pad; max += pad;      // breathing room top/bottom
+  const n = pts.length;
+  const X = (i) => padX + (i / (n - 1)) * (W - 2 * padX);
+  const Y = (v) => padT + (1 - (v - min) / (max - min)) * (H - padT - padB);
+  const P = pts.map((p, i) => ({ x: X(i), y: Y(p.v) }));
+  const up = pts[n - 1].v >= pts[0].v, col = up ? "var(--long)" : "var(--short)", gid = "ag" + Math.random().toString(36).slice(2, 7);
+  const dline = smoothD(P);
+  const bottom = (H - padB).toFixed(1);
+  const darea = dline + ` L${P[n - 1].x.toFixed(1)} ${bottom} L${P[0].x.toFixed(1)} ${bottom} Z`;
+  // grid lines live in the (stretched) SVG; the value labels are HTML so they
+  // never get distorted by preserveAspectRatio="none".
+  let grid = "", labels = "";
+  for (let g = 0; g <= 4; g++) {
+    const v = min + (max - min) * (g / 4), y = Y(v);
+    grid += `<line x1="${padX}" x2="${W - padX}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,.05)"/>`;
+    labels += `<span class="acy" style="top:${((y / H) * 100).toFixed(2)}%">$${fmtP(v)}</span>`;
+  }
+  return `<div class="acctwrap"><svg class="acctsvg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+    <defs><linearGradient id="${gid}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity="0.22"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>
+    ${grid}<path d="${darea}" fill="url(#${gid})"/><path d="${dline}" fill="none" stroke="${col}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+  </svg><div class="acylabels">${labels}</div></div>`;
+}
 function bigChartSvg(pts) {
   const W = 900, H = 360, padX = 8, padT = 14, padB = 18;
   let min = Infinity, max = -Infinity;
@@ -2398,14 +2677,27 @@ function attachModalHover(box, pts) {
   };
   box.onmouseleave = () => { cross.style.display = "none"; tip.style.display = "none"; };
 }
+/* Sub-views are reached from the Trading hub tiles (no own left-nav button). */
+const SUBVIEWS = {
+  smart: ["Smart Money", "Top-100 trader tracker · auto-copy"],
+  live: ["Live Trading", "REAL money · echtes Geld"],
+  watch: ["Watchlist", "Tracked wallets &amp; their positions"],
+  markets: ["Markets", "Live Hyperliquid markets"],
+  finder: ["Whale Finder", "Top leaderboard traders ranked by performance"],
+  me: ["My Account", "Your live Hyperliquid wallet"],
+};
+function openSub(name) { showView(name); }
 function showView(name) {
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + name));
+  const isSub = !!SUBVIEWS[name];
   let title = "", sub = "";
   document.querySelectorAll(".navitem").forEach((n) => {
-    const on = n.dataset.view === name;
+    const on = n.dataset.view === name || (isSub && n.dataset.view === "trading");
     n.classList.toggle("active", on);
-    if (on) { title = n.dataset.title || ""; sub = n.dataset.sub || ""; }
+    if (n.dataset.view === name) { title = n.dataset.title || ""; sub = n.dataset.sub || ""; }
   });
+  if (isSub) { title = SUBVIEWS[name][0]; sub = SUBVIEWS[name][1]; }
+  const back = document.getElementById("backBtn"); if (back) back.style.display = isSub ? "" : "none";
   const t = document.getElementById("viewTitle"), s = document.getElementById("viewSub");
   if (t) t.textContent = title; if (s) s.innerHTML = sub;
   try { localStorage.setItem("ccView", name); } catch (e) {}
@@ -2415,11 +2707,12 @@ function showView(name) {
     else if (typeof arcadeStopAll === "function") arcadeStopAll();
     else pgStop();
   }
-  if (name === "smart" && typeof scanRadarStart === "function") { setTimeout(scanRadarStart, 0); setTimeout(scanOctoStart, 0); }
+  if (name === "smart" && typeof scanRadarStart === "function") { setTimeout(scanRadarStart, 0); }
+  if (name === "me" && lastBotStatus) renderMyAccount(lastBotStatus);
 }
 function initNav() {
   document.querySelectorAll(".navitem").forEach((n) => n.addEventListener("click", () => showView(n.dataset.view)));
-  let start = "watch";
+  let start = "trading";
   try { const v = localStorage.getItem("ccView"); if (v && document.getElementById("view-" + v)) start = v; } catch (e) {}
   showView(start);
 }
