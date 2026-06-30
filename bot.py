@@ -239,7 +239,10 @@ def _tg_api(method, params):
 
 def _kb(rows): return json.dumps({"inline_keyboard": rows})
 _MENU_KB = [[{"text": "🔴 Live (echtes Geld)", "callback_data": "e:live"}],
-            [{"text": "🧠 Smart Money", "callback_data": "e:smart"}]]
+            [{"text": "🧠 Smart Money", "callback_data": "e:smart"}],
+            [{"text": "📋 Offene Positionen", "callback_data": "pos"}]]
+def _menu_kb_with_back():
+    return _MENU_KB + [[{"text": "🔄 Aktualisieren", "callback_data": "pos"}]]
 def _period_kb(eng):
     return [[{"text": "Heute", "callback_data": "s:%s:t" % eng}, {"text": "7 Tage", "callback_data": "s:%s:7" % eng}, {"text": "30 Tage", "callback_data": "s:%s:30" % eng}],
             [{"text": "Gesamt", "callback_data": "s:%s:all" % eng}],
@@ -263,6 +266,24 @@ def _stat_one(eng, per):
     pnl = sum(float(t.get("pnl", 0)) for t in rows); n = len(rows)
     wins = sum(1 for t in rows if float(t.get("pnl", 0)) > 0); wr = round(100 * wins / n) if n else 0
     return "%s\n\n📊 %s\nPnL: %s · %d Trades · %d%% Win-Rate" % (head, lbl, _fmt_money(pnl), n, wr)
+
+def _positions_text():
+    """Tap-friendly list of all currently open positions, Live (real) + Smart (paper)."""
+    lv = STATE.get("live", {}); sm = STATE.get("smart", {})
+    def fmt(p, tag=""):
+        return ("• %s %s · %d× · Margin $%.2f · uPnL %s (%+.1f%%)%s"
+                % (p.get("side", ""), p.get("coin", ""), int(p.get("lev") or 0),
+                   float(p.get("margin") or 0), _fmt_money(p.get("upnl", 0)),
+                   float(p.get("roe") or 0) * 100, tag))
+    out = ["📋 OFFENE POSITIONEN", ""]
+    lp = lv.get("pos", []) or []
+    out.append("🔴 LIVE (echtes Geld) — %d offen · Account $%.2f" % (len(lp), lv.get("equity", 0)))
+    out += [fmt(p, " [BOT]" if p.get("owned") else "") for p in lp] or ["  keine"]
+    out.append("")
+    sp = sm.get("pos", []) or []
+    out.append("🧠 SMART (Paper) — %d offen · Equity $%.2f" % (len(sp), sm.get("equity", 0)))
+    out += [fmt(p) for p in sp] or ["  keine"]
+    return "\n".join(out)
 
 def run_tg_listener():
     """Long-poll Telegram and drive a tap-only menu: pick Live/Smart, then a period."""
@@ -299,6 +320,8 @@ def run_tg_listener():
                     d = cq.get("data", "")
                     if d == "m":
                         _tg_api("editMessageText", {"chat_id": chat, "message_id": mid, "text": "📊 Stats — welcher Bot?", "reply_markup": _kb(_MENU_KB)})
+                    elif d == "pos":
+                        _tg_api("editMessageText", {"chat_id": chat, "message_id": mid, "text": _positions_text(), "reply_markup": _kb(_menu_kb_with_back())})
                     elif d.startswith("e:"):
                         eng = d[2:]; title = "🔴 Live (echtes Geld)" if eng == "live" else "🧠 Smart Money"
                         _tg_api("editMessageText", {"chat_id": chat, "message_id": mid, "text": "%s\nZeitraum wählen:" % title, "reply_markup": _kb(_period_kb(eng))})
