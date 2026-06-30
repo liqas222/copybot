@@ -266,20 +266,29 @@ def _stat_one(eng, per):
 
 def run_tg_listener():
     """Long-poll Telegram and drive a tap-only menu: pick Live/Smart, then a period."""
-    offset = 0; drained = False
+    offset = 0; flushed = False
     while True:
         try:
             tok = TG["token"]
             if not tok:
                 time.sleep(5); continue
+            if not flushed:
+                # one quick flush of the pre-startup backlog so we don't reply to stale
+                # messages — but the FIRST new message still gets answered.
+                try:
+                    rr = urllib.request.urlopen("https://api.telegram.org/bot%s/getUpdates?timeout=0&offset=-1" % tok, timeout=10)
+                    res = json.loads(rr.read()).get("result", [])
+                    if res:
+                        offset = res[-1]["update_id"] + 1
+                except Exception:
+                    pass
+                flushed = True
             url = "https://api.telegram.org/bot%s/getUpdates?timeout=30&offset=%d&allowed_updates=%s" % (
                 tok, offset, urllib.parse.quote('["message","callback_query"]'))
             r = urllib.request.urlopen(url, timeout=40)
             data = json.loads(r.read())
             for u in data.get("result", []):
                 offset = u["update_id"] + 1
-                if not drained:
-                    continue                      # skip backlog on first start
                 cq = u.get("callback_query")
                 if cq:                            # a button was tapped
                     mm = cq.get("message") or {}
