@@ -1179,7 +1179,7 @@ SMART_REBUILD_MIN = 60       # rebuild the top list every N minutes (list refres
 SMART_CYCLE   = 60.0         # target seconds for one full pass over the list (continuous trade-scan)
 LB_URL        = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard"
 
-SMART = {"cash": SMART_START, "pos": {}, "closed": [], "hist": []}   # pos keyed by bare coin
+SMART = {"cash": SMART_START, "pos": {}, "closed": [], "hist": [], "start": SMART_START}   # pos keyed by bare coin; "start" = baseline for PnL/charts (reset to wallet on switch to Smart)
 # REAL positions Smart Money opened on the live account — ONLY while MODE=="smart" AND the
 # Hyperliquid account is connected/ready. Mirrors SMART["pos"] 1:1 (same coins/side/leverage/
 # TP rules) but with real orders. coin -> {side, sz, lev, margin, entry, opened_ms, src_name}
@@ -1356,14 +1356,15 @@ def smart_publish(mids):
     wins = sum(1 for t in SMART["closed"] if t["pnl"] > 0); tot = sum(t["pnl"] for t in SMART["closed"]); n = len(SMART["closed"])
     sum_roe = sum((t.get("roe") or 0) for t in SMART["closed"]) * 100.0   # added-up % of every trade
     start_ms = SMART["hist"][0][0] if SMART["hist"] else nowms             # engine start ≈ first snapshot
-    STATE["smart"] = {"equity": round(eq, 2), "cash": round(SMART["cash"], 2), "start": SMART_START,
+    base = SMART.get("start", SMART_START)                                 # baseline (wallet value after a switch-to-Smart reset)
+    STATE["smart"] = {"equity": round(eq, 2), "cash": round(SMART["cash"], 2), "start": base,
         "pos": pos, "closed": list(reversed(SMART["closed"][-60:])), "start_ms": start_ms,
         "stats": {"count": n, "win_rate": round(100.0 * wins / n, 1) if n else 0.0,
                   "realized": round(tot, 2), "sum_roe": round(sum_roe, 1)},
         "top": SMART_TOP[:100], "signals": SMART_SIG[:40], "tracked": len(SMART_TOP),
         "real_active": smart_real_active(), "real_owned": len(SMART_OWNED),
         "lev": SMART_LEV, "tp_pct": round(SMART_TP * 100), "frac_pct": round(SMART_FRAC * 100),
-        "history": SMART["hist"][-1500:], "pnl_all": round(eq - SMART_START, 2),
+        "history": SMART["hist"][-1500:], "pnl_all": round(eq - base, 2),
         "building": SMART_BUILD["on"], "build_done": SMART_BUILD["done"], "build_total": SMART_BUILD["total"],
         "next_build_ms": int((SMART_BUILD.get("last", 0) + SMART_REBUILD_MIN * 60) * 1000) if SMART_BUILD.get("last") else 0,
         "interval_min": SMART_REBUILD_MIN}
@@ -1371,7 +1372,8 @@ def smart_publish(mids):
 def smart_save():
     try:
         data = {"cash": SMART["cash"], "pos": SMART["pos"], "closed": SMART["closed"][-300:],
-                "hist": SMART["hist"][-3000:], "top": SMART_TOP, "owned": SMART_OWNED}
+                "hist": SMART["hist"][-3000:], "top": SMART_TOP, "owned": SMART_OWNED,
+                "start": SMART.get("start", SMART_START)}
         tmp = SMART_FILE + ".tmp"; json.dump(data, open(tmp, "w")); os.replace(tmp, SMART_FILE)
     except Exception as e:
         print("smart_save error:", e)
@@ -1386,12 +1388,27 @@ def smart_load():
         SMART["pos"] = d.get("pos") or {}
         SMART["closed"] = d.get("closed") or []
         SMART["hist"] = d.get("hist") or []
+        SMART["start"] = d.get("start", SMART_START)
         SMART_TOP = d.get("top") or []
         SMART_OWNED.clear(); SMART_OWNED.update(d.get("owned") or {})
         smart_normalize_tps()   # retro-fix any take-profit that overshot +12% (idempotent)
         return True
     except Exception as e:
         print("smart_load error:", e); return False
+
+def smart_reset(start_value):
+    """Wipe the Smart book and anchor it to `start_value` (your real wallet value) so the
+    dashboard/charts start fresh from there. Called when switching INTO Smart mode. Does NOT
+    touch real positions on the exchange — only the bot's own tracking/display."""
+    SMART["cash"] = round(start_value, 2)
+    SMART["pos"] = {}
+    SMART["closed"] = []
+    SMART["hist"] = []
+    SMART["start"] = round(start_value, 2)
+    SMART_OWNED.clear()
+    _smart_last.clear()           # re-baseline every tracked trader -> only NEW opens get copied
+    smart_save()
+    print("smart_reset: fresh start at $%.2f" % start_value)
 
 def smart_normalize_tps():
     """One-time (idempotent) correction: rewrite already-closed take-profit trades to
@@ -1691,6 +1708,17 @@ def set_mode(new):
     MODE["v"] = new
     if new != "live":
         LIVE["enabled"] = False          # leaving live -> engine can no longer trade
+    if new == "smart":
+        # fresh start: clear the Smart book and anchor it to the real wallet value
+        sv = SMART_START
+        if live_has_credentials():
+            try:
+                ok, _ = live_init()
+                if ok:
+                    sv = get_unified_value(EXEC_URL, LIVE["addr"]) or SMART_START
+            except Exception:
+                pass
+        smart_reset(sv)
     live_save_config()
     tg("🔀 Modus gewechselt → %s" % ("🔴 LIVE (echtes Geld)" if new == "live" else "🧠 Smart Money"))
     return True, "ok"
