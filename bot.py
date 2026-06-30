@@ -256,9 +256,19 @@ def _tg_api(method, params):
 def _kb(rows): return json.dumps({"inline_keyboard": rows})
 _MENU_KB = [[{"text": "🔴 Live (echtes Geld)", "callback_data": "e:live"}],
             [{"text": "🧠 Smart Money", "callback_data": "e:smart"}],
-            [{"text": "📋 Offene Positionen", "callback_data": "pos"}]]
+            [{"text": "📋 Offene Positionen", "callback_data": "pos"}],
+            [{"text": "🔀 Modus wechseln", "callback_data": "mode"}]]
 def _menu_kb_with_back():
     return _MENU_KB + [[{"text": "🔄 Aktualisieren", "callback_data": "pos"}]]
+def _mode_kb():
+    return [[{"text": "🔴 → Live (echtes Geld)", "callback_data": "md:live"}],
+            [{"text": "🧠 → Smart Money", "callback_data": "md:smart"}],
+            [{"text": "↩︎ Menü", "callback_data": "m"}]]
+def _mode_text(extra=""):
+    cur = "🔴 Live (echtes Geld)" if MODE["v"] == "live" else "🧠 Smart Money"
+    return ("🔀 TRADING-MODUS\nAktuell: %s\n\nEs ist immer nur EIN Modus aktiv. Wechsel geht nur, "
+            "wenn der aktive Modus keine offenen Bot-Positionen mehr hat.%s"
+            % (cur, ("\n\n" + extra) if extra else ""))
 def _period_kb(eng):
     return [[{"text": "Heute", "callback_data": "s:%s:t" % eng}, {"text": "7 Tage", "callback_data": "s:%s:7" % eng}, {"text": "30 Tage", "callback_data": "s:%s:30" % eng}],
             [{"text": "Gesamt", "callback_data": "s:%s:all" % eng}],
@@ -329,6 +339,12 @@ def run_tg_listener():
                         _tg_api("editMessageText", {"chat_id": chat, "message_id": mid, "text": "📊 Stats — welcher Bot?", "reply_markup": _kb(_MENU_KB)})
                     elif d == "pos":
                         _tg_api("editMessageText", {"chat_id": chat, "message_id": mid, "text": _positions_text(), "reply_markup": _kb(_menu_kb_with_back())})
+                    elif d == "mode":
+                        _tg_api("editMessageText", {"chat_id": chat, "message_id": mid, "text": _mode_text(), "reply_markup": _kb(_mode_kb())})
+                    elif d.startswith("md:"):
+                        ok, msg = set_mode(d[3:])
+                        note = "✅ Gewechselt." if ok else ("⛔ " + msg)
+                        _tg_api("editMessageText", {"chat_id": chat, "message_id": mid, "text": _mode_text(note), "reply_markup": _kb(_mode_kb())})
                     elif d.startswith("e:"):
                         eng = d[2:]; title = "🔴 Live (echtes Geld)" if eng == "live" else "🧠 Smart Money"
                         _tg_api("editMessageText", {"chat_id": chat, "message_id": mid, "text": "%s\nZeitraum wählen:" % title, "reply_markup": _kb(_period_kb(eng))})
