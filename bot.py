@@ -1164,6 +1164,10 @@ SMART_CYCLE   = 60.0         # target seconds for one full pass over the list (c
 LB_URL        = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard"
 
 SMART = {"cash": SMART_START, "pos": {}, "closed": [], "hist": []}   # pos keyed by bare coin
+# REAL positions Smart Money opened on the live account — ONLY while MODE=="smart" AND the
+# Hyperliquid account is connected/ready. Mirrors SMART["pos"] 1:1 (same coins/side/leverage/
+# TP rules) but with real orders. coin -> {side, sz, lev, margin, entry, opened_ms, src_name}
+SMART_OWNED = {}
 SMART_TOP = []               # [{addr,name,roi,wr,score}]
 SMART_SIG = []               # recent decision log [{t,text,act}]
 _smart_last = {}             # addr -> set of bare coins open (main dex) last poll
@@ -1313,6 +1317,7 @@ def smart_consider(coin, w, tr, mids):
     smart_log("✅ KOPIERT %s %s · %s · WR %.0f%% · %d× · TP +%.0f%%%s" % (coin, w["side"], nm, tr["wr"], lev, tp * 100, derisk), "copy")
     tg("🧠 SMART ✅ COPIED %s %s · von %s · WR %.0f%% · margin $%.2f · %d× · TP +%.0f%%%s"
        % (coin, w["side"], nm, tr["wr"], margin, lev, tp * 100, derisk))
+    return SMART["pos"].get(coin)        # for the real-money mirror (see smart_real_open)
 
 def smart_publish(mids):
     eq = smart_equity(mids)
@@ -1340,6 +1345,7 @@ def smart_publish(mids):
         "stats": {"count": n, "win_rate": round(100.0 * wins / n, 1) if n else 0.0,
                   "realized": round(tot, 2), "sum_roe": round(sum_roe, 1)},
         "top": SMART_TOP[:100], "signals": SMART_SIG[:40], "tracked": len(SMART_TOP),
+        "real_active": smart_real_active(), "real_owned": len(SMART_OWNED),
         "lev": SMART_LEV, "tp_pct": round(SMART_TP * 100), "frac_pct": round(SMART_FRAC * 100),
         "history": SMART["hist"][-1500:], "pnl_all": round(eq - SMART_START, 2),
         "building": SMART_BUILD["on"], "build_done": SMART_BUILD["done"], "build_total": SMART_BUILD["total"],
@@ -1349,7 +1355,7 @@ def smart_publish(mids):
 def smart_save():
     try:
         data = {"cash": SMART["cash"], "pos": SMART["pos"], "closed": SMART["closed"][-300:],
-                "hist": SMART["hist"][-3000:], "top": SMART_TOP}
+                "hist": SMART["hist"][-3000:], "top": SMART_TOP, "owned": SMART_OWNED}
         tmp = SMART_FILE + ".tmp"; json.dump(data, open(tmp, "w")); os.replace(tmp, SMART_FILE)
     except Exception as e:
         print("smart_save error:", e)
@@ -1365,6 +1371,7 @@ def smart_load():
         SMART["closed"] = d.get("closed") or []
         SMART["hist"] = d.get("hist") or []
         SMART_TOP = d.get("top") or []
+        SMART_OWNED.clear(); SMART_OWNED.update(d.get("owned") or {})
         smart_normalize_tps()   # retro-fix any take-profit that overshot +12% (idempotent)
         return True
     except Exception as e:
@@ -1389,6 +1396,79 @@ def smart_normalize_tps():
         SMART["cash"] = round(SMART["cash"] - delta, 2)
         print("smart: normalized %d take-profits to %.0f%% ROE (cash -$%.2f)" % (fixed, SMART_TP * 100, delta))
 
+# ---- Smart Money REAL execution (only while MODE=="smart" AND connected) ----
+# These mirror the paper decisions 1:1 with REAL orders on the live account. Sizing uses the
+# REAL account value (same 20%/trade rule); leverage/TP come from the same paper position.
+def smart_real_active():
+    return MODE["v"] == "smart" and bool(LIVE.get("ready")) and LIVE.get("ex") is not None
+
+def smart_real_open(coin, side, lev, mid, src_name):
+    """Place ONE real market order mirroring a paper Smart open (main perp, isolated).
+    Margin = 20% of the REAL account value. Records it in SMART_OWNED."""
+    ex = LIVE.get("ex")
+    if not ex or coin in SMART_OWNED or len(SMART_OWNED) >= SMART_MAX:
+        return
+    try:
+        eq = get_unified_value(EXEC_URL, LIVE["addr"])
+    except Exception:
+        eq = 0.0
+    if eq <= 0:
+        smart_log("⚠️ REAL %s übersprungen — Account-Wert nicht lesbar" % coin, "skip"); return
+    if mid <= 0:
+        return
+    margin = eq * SMART_FRAC
+    is_buy = (side == "LONG")
+    sz = live_round_sz(ex, coin, (margin * lev) / mid)
+    if sz <= 0:
+        smart_log("⚠️ REAL %s übersprungen — Größe 0" % coin, "skip"); return
+    try:
+        lr = ex.update_leverage(lev, coin, False)   # isolated (Smart paper model is isolated)
+        le = live_resp_error(lr)
+        if le:
+            smart_log("⚠️ REAL Leverage %s: %s" % (coin, le), "warn")
+        res = ex.market_open(coin, is_buy, sz)
+        err = live_resp_error(res)
+        if err:
+            smart_log("❌ REAL Order %s abgelehnt: %s" % (coin, err), "err"); return
+        time.sleep(1.0)
+        mine = get_positions(EXEC_URL, ex.account_address).get(("", coin))
+        if not mine:
+            smart_log("⚠️ REAL %s: keine Position nach Order sichtbar" % coin, "warn"); return
+        SMART_OWNED[coin] = {"side": side, "sz": sz, "lev": lev, "margin": round(margin, 2),
+                             "entry": mine["entry"] or mid, "opened_ms": int(time.time() * 1000),
+                             "src_name": src_name}
+        smart_save()
+        smart_log("✅ REAL OPEN %s %s · Margin $%.2f · %d× (ECHTES GELD)" % (coin, side, margin, lev), "open")
+    except Exception as e:
+        smart_log("❌ REAL Fehler %s: %s" % (coin, e), "err")
+
+def smart_real_close(coin, reason):
+    """Market-close a real Smart position (mirrors a paper TP/liq/trader-exit) and log the
+    realized PnL from fills. Idempotent: clears SMART_OWNED even if the position was already
+    gone (e.g. liquidated on the exchange first)."""
+    ex = LIVE.get("ex"); meta = SMART_OWNED.get(coin)
+    if not meta:
+        return
+    if not ex:
+        SMART_OWNED.pop(coin, None); smart_save(); return
+    try:
+        res = ex.market_close(coin)
+        err = live_resp_error(res)
+        if err:
+            smart_log("⚠️ REAL Close %s: %s" % (coin, err), "warn")
+    except Exception as e:
+        smart_log("❌ REAL Close-Fehler %s: %s" % (coin, e), "err")
+    time.sleep(0.5)
+    try:
+        pnl, found = live_fills_pnl(LIVE["addr"], coin, meta.get("opened_ms", 0))
+    except Exception:
+        pnl, found = 0.0, False
+    SMART_OWNED.pop(coin, None); smart_save()
+    if found:
+        smart_log("🔻 REAL CLOSE %s (%s) · PnL %s (ECHTES GELD)" % (coin, reason, _fmt_money(pnl)), "close")
+    else:
+        smart_log("🔻 REAL CLOSE %s (%s) · PnL wird abgerechnet" % (coin, reason), "close")
+
 def run_smart():
     smart_load()
     if not SMART_TOP:
@@ -1404,10 +1484,16 @@ def run_smart():
                 mids = hl_post(SOURCE_URL, {"type": "allMids"})
             except Exception:
                 mids = {}
+            # In Smart mode with a connected account, ensure the Exchange is built so the
+            # paper decisions below can be mirrored with REAL orders.
+            if MODE["v"] == "smart" and live_has_credentials() and not (LIVE.get("ready") and LIVE.get("ex")):
+                try: live_init()
+                except Exception: pass
+            real = smart_real_active()
             # TP / liquidation on our own positions every tick.
             # IMPORTANT: never call tg() inside `with LOCK` — tg() itself takes LOCK
             # and threading.Lock isn't reentrant -> deadlock. Collect msgs, send after.
-            sm_events = []
+            sm_events = []; real_closes = []
             with LOCK:
                 for coin in list(SMART["pos"].keys()):
                     p = SMART["pos"][coin]; pnl = smart_pnl(p, mids); roe = pnl / p["margin"] if p["margin"] else 0
@@ -1416,14 +1502,19 @@ def run_smart():
                         SMART["cash"] -= p["margin"]; SMART["pos"].pop(coin); smart_record(p, -p["margin"], "liquidated", mids)
                         smart_log("💥 LIQ %s — -$%.2f" % (coin, p["margin"]), "liq")
                         sm_events.append("🧠 SMART 💥 LIQUIDATED %s — -$%.2f" % (coin, p["margin"]))
+                        real_closes.append((coin, "liquidated"))
                     elif roe >= p["tp"]:
                         tppx = smart_tp_price(p)              # fill exactly at the +12% target, not the overshot mark
                         tp_pnl = p["tp"] * p["margin"]        # => PnL is exactly TP% of margin
                         SMART["cash"] += tp_pnl; SMART["pos"].pop(coin); smart_record(p, tp_pnl, "take-profit", mids, exitpx=tppx)
                         smart_log("🎯 TP %s +$%.2f (%.0f%%)" % (coin, tp_pnl, p["tp"] * 100), "tp")
                         sm_events.append("🧠 SMART 🎯 TP %s +$%.2f (%.0f%% ROE)" % (coin, tp_pnl, p["tp"] * 100))
+                        real_closes.append((coin, "take-profit"))
             for e in sm_events:
                 tg(e)
+            for coin, reason in real_closes:           # mirror the close with a real order
+                if coin in SMART_OWNED:
+                    smart_real_close(coin, reason)
             # poll ONE trader per tick (staggered over the whole list)
             tr = SMART_TOP[idx % len(SMART_TOP)]; idx += 1
             cur = smart_fetch_main(tr["addr"])
@@ -1432,7 +1523,7 @@ def run_smart():
                 if prev is not None:
                     # Source trader CLOSED a coin we copied from THEM -> close ours too,
                     # UNLESS we're already in profit (then let the +TP / liquidation run).
-                    sm_ev = []
+                    sm_ev = []; exit_closes = []
                     with LOCK:
                         for coin in prev - coins_now:
                             p = SMART["pos"].get(coin)
@@ -1445,11 +1536,17 @@ def run_smart():
                             smart_record(p, pnl, "trader exit", mids)
                             smart_log("🚪 EXIT %s — Trader zu, ROE %.0f%%" % (coin, roe * 100), "close")
                             sm_ev.append("🧠 SMART 🚪 EXIT %s (Trader zu) · PnL $%.2f · %.0f%%" % (coin, pnl, roe * 100))
+                            exit_closes.append(coin)
                     for e in sm_ev:
                         tg(e)
+                    for coin in exit_closes:           # mirror trader-exit with a real close
+                        if coin in SMART_OWNED:
+                            smart_real_close(coin, "trader exit")
                     # genuine NEW opens (only after we have a baseline snapshot for this trader)
                     for coin in coins_now - prev:
-                        smart_consider(coin, cur[coin], tr, mids)
+                        created = smart_consider(coin, cur[coin], tr, mids)
+                        if created and real:           # mirror the paper open with a REAL order
+                            smart_real_open(coin, created["side"], created["lev"], created["entry"], created.get("src_name", ""))
             with LOCK:
                 smart_publish(mids)
             smart_save()
@@ -1573,6 +1670,8 @@ def set_mode(new):
     # Smart Money is paper and runs continuously, so its positions don't block anything.
     if cur == "live" and LIVE.get("owned"):
         return False, "Live-Engine hat noch %d offene Bot-Position(en) — erst schließen (PANIC)." % len(LIVE["owned"])
+    if cur == "smart" and SMART_OWNED:
+        return False, "Smart Money hat noch %d offene ECHTE Position(en) — erst schließen." % len(SMART_OWNED)
     MODE["v"] = new
     if new != "live":
         LIVE["enabled"] = False          # leaving live -> engine can no longer trade

@@ -2150,9 +2150,11 @@ function renderSmart(sm) {
     return;
   }
   const pos = sm.equity >= sm.start, all = sm.pnl_all || 0;
-  if (port) port.innerHTML = `<header class="phead"><span class="wlabel">Smart Money · Paper</span><span class="meta">${sm.tracked || 0} Trader getrackt</span></header>
+  const realOn = !!sm.real_active;
+  if (port) port.innerHTML = `<header class="phead"><span class="wlabel">Smart Money · ${realOn ? "🔴 ECHTES GELD" : "Paper"}</span><span class="meta">${sm.tracked || 0} Trader getrackt</span></header>
     <div class="pbody">
-      <div class="hero"><span class="herolabel">Account Value (Paper)</span><span class="heroval num ${pos ? "pos" : "neg"}">${fmtUsdC(sm.equity)}</span></div>
+      ${realOn ? `<div class="liverisk">🔴 <b>ECHTES GELD aktiv</b> — Modus steht auf Smart &amp; Konto verbunden. Neue Top-Trader-Trades werden mit echtem Geld kopiert (${sm.real_owned || 0} echte offen).</div>` : ""}
+      <div class="hero"><span class="herolabel">Account Value (${realOn ? "Paper-Simulation" : "Paper"})</span><span class="heroval num ${pos ? "pos" : "neg"}">${fmtUsdC(sm.equity)}</span></div>
       <div class="statrow"><span>All-time PnL</span><span class="num ${all >= 0 ? "pos" : "neg"}">${fmtSignedC(all)}</span></div>
       <div class="statrow"><span>Cash (free)</span><span class="num">${fmtUsdC(sm.cash)}</span></div>
       <div class="statrow"><span>Win rate</span><span class="num">${sm.stats ? sm.stats.win_rate : 0}% · ${sm.stats ? sm.stats.count : 0} trades</span></div>
