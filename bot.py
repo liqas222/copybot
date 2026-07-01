@@ -599,7 +599,7 @@ def paper_equity(whale=None, mids=None):
 # ---------------- real order actions (non-paper) ----------------
 def open_copy(ex, w, equity):
     lev = my_leverage(w["lev"], w["mode"])
-    is_cross = (w["mode"] == "cross")
+    is_cross = False          # ALWAYS isolated — never mirror a cross source (drain risk)
     is_buy = w["szi"] > 0
     coin, mark = w["coin"], (w["mark"] or 1)
     margin = equity * CAPITAL_FRACTION
@@ -1895,7 +1895,7 @@ def live_test_open(coin, is_buy, margin):
         return False, "Größe 0 — Margin zu klein für %s" % coin
     key = ("", coin)
     try:
-        lres = ex.update_leverage(lev, coin, True)   # cross
+        lres = ex.update_leverage(lev, coin, False)   # isolated
         lerr = live_resp_error(lres)
         if lerr:
             live_note("⚠️ Test-Leverage %s: %s" % (coin, lerr), "warn")
@@ -1926,7 +1926,7 @@ def live_open(w, equity):
     if not ex:
         return
     lev = live_lev()
-    is_cross = (w["mode"] == "cross")
+    is_cross = False          # ALWAYS isolated — a cross liquidation could drain the whole account
     is_buy = w["szi"] > 0
     coin, mark = w["coin"], (w["mark"] or 0)
     if w["dex"] and not LIVE.get("builder_ok"):
