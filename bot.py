@@ -128,15 +128,12 @@ LIVE_HIST_EVERY = 60         # seconds between live equity snapshots for the cha
 
 # Active trading mode — exactly ONE engine may open new trades at a time.
 #   "live"  -> the real-money Live engine may be armed; Smart Money opens nothing.
-#   "smart" -> Smart Money opens (paper for now); the Live engine is forced off.
+#   "smart" -> Smart Money opens (paper unless connected); the Live engine is forced off.
 # A mode switch is only allowed when the CURRENT mode is flat (no open bot positions).
 MODE = {"v": "live"}
-
-# Active trading mode — exactly ONE engine may open new trades at a time.
-#   "live"  -> the real-money Live engine may be armed; Smart Money opens nothing.
-#   "smart" -> Smart Money opens (paper for now); the Live engine is forced off.
-# A mode switch is only allowed when the CURRENT mode is flat (no open bot positions).
-MODE = {"v": "live"}
+# Per-engine pause: stops opening NEW trades while open positions keep being managed
+# (TP / liquidation / exits still run). Persisted in config.json.
+PAUSE = {"live": False, "smart": False}
 
 # virtual book for paper mode
 PAPER = {"cash": PAPER_START, "pos": {}, "hist": [], "closed": []}   # pos: key(tuple) -> dict; hist: [[t_ms, equity], ...]; closed: [trade dicts]
@@ -257,7 +254,16 @@ def _kb(rows): return json.dumps({"inline_keyboard": rows})
 _MENU_KB = [[{"text": "🔴 Live (echtes Geld)", "callback_data": "e:live"}],
             [{"text": "🧠 Smart Money", "callback_data": "e:smart"}],
             [{"text": "📋 Offene Positionen", "callback_data": "pos"}],
-            [{"text": "🔀 Modus wechseln", "callback_data": "mode"}]]
+            [{"text": "🔀 Modus wechseln", "callback_data": "mode"}],
+            [{"text": "⏸ Pause / Fortsetzen", "callback_data": "pause"}]]
+def _pause_kb():
+    return [[{"text": ("▶️ Live fortsetzen" if PAUSE["live"] else "⏸ Live pausieren"), "callback_data": "pz:live"}],
+            [{"text": ("▶️ Smart fortsetzen" if PAUSE["smart"] else "⏸ Smart pausieren"), "callback_data": "pz:smart"}],
+            [{"text": "↩︎ Menü", "callback_data": "m"}]]
+def _pause_text():
+    st = lambda b: ("⏸ pausiert" if PAUSE[b] else "▶️ aktiv")
+    return ("⏸ PAUSE PRO BOT\n🔴 Live: %s\n🧠 Smart: %s\n\nPausiert = keine NEUEN Trades; "
+            "offene Positionen laufen weiter (TP/Exit aktiv)." % (st("live"), st("smart")))
 def _menu_kb_with_back():
     return _MENU_KB + [[{"text": "🔄 Aktualisieren", "callback_data": "pos"}]]
 def _mode_kb():
@@ -341,6 +347,15 @@ def run_tg_listener():
                         _tg_api("editMessageText", {"chat_id": chat, "message_id": mid, "text": _positions_text(), "reply_markup": _kb(_menu_kb_with_back())})
                     elif d == "mode":
                         _tg_api("editMessageText", {"chat_id": chat, "message_id": mid, "text": _mode_text(), "reply_markup": _kb(_mode_kb())})
+                    elif d == "pause":
+                        _tg_api("editMessageText", {"chat_id": chat, "message_id": mid, "text": _pause_text(), "reply_markup": _kb(_pause_kb())})
+                    elif d.startswith("pz:"):
+                        b = d[3:]
+                        if b in PAUSE:
+                            PAUSE[b] = not PAUSE[b]; live_save_config()
+                            tg("%s %s %s" % ("⏸" if PAUSE[b] else "▶️", "LIVE" if b == "live" else "SMART",
+                                             "pausiert (keine neuen Trades)" if PAUSE[b] else "fortgesetzt"))
+                        _tg_api("editMessageText", {"chat_id": chat, "message_id": mid, "text": _pause_text(), "reply_markup": _kb(_pause_kb())})
                     elif d.startswith("md:"):
                         ok, msg = set_mode(d[3:])
                         note = "✅ Gewechselt." if ok else ("⛔ " + msg)
@@ -847,6 +862,19 @@ class Handler(BaseHTTPRequestHandler):
             new = (body.get("mode", [""])[0] or "").strip()
             ok, msg = set_mode(new)
             return self._send(200, json.dumps({"ok": ok, "mode": MODE["v"], "error": "" if ok else msg}))
+        elif path == "/pause_bot":
+            ln = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(ln).decode("utf-8", "ignore") if ln > 0 else ""
+            body = urllib.parse.parse_qs(raw)
+            bot = (body.get("bot", [""])[0] or "").strip()
+            on = (body.get("on", [""])[0] or "").strip() == "1"
+            if bot not in ("live", "smart"):
+                return self._send(200, json.dumps({"ok": False, "error": "unbekannter Bot"}))
+            PAUSE[bot] = on
+            live_save_config()
+            tg("%s %s %s" % ("⏸" if on else "▶️", "LIVE" if bot == "live" else "SMART",
+                             "pausiert (keine neuen Trades)" if on else "fortgesetzt"))
+            return self._send(200, json.dumps({"ok": True, "bot": bot, "paused": on}))
         elif path == "/live_toggle":
             ln = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(ln).decode("utf-8", "ignore") if ln > 0 else ""
@@ -1309,9 +1337,8 @@ def smart_record(p, pnl, reason, mids, exitpx=None):
 def smart_consider(coin, w, tr, mids):
     """Decision (option 2): the trader is already top-100 by ROI+win-rate, the coin
     is a liquid main perp -> copy unless we already hold it or are at max slots."""
-    # NOTE: Smart Money is still PAPER, so it always runs — even alongside the Live
-    # engine. Re-enable this mutual-exclusion guard once Smart Money trades real money:
-    #   if MODE["v"] != "smart": return
+    if PAUSE.get("smart"):
+        return                 # paused -> open no new trades (open positions keep running)
     entry = w["mark"] or w["entry"] or 0
     nm = tr["name"] or (tr["addr"][:6] + "…")
     with LOCK:
@@ -1362,7 +1389,7 @@ def smart_publish(mids):
         "stats": {"count": n, "win_rate": round(100.0 * wins / n, 1) if n else 0.0,
                   "realized": round(tot, 2), "sum_roe": round(sum_roe, 1)},
         "top": SMART_TOP[:100], "signals": SMART_SIG[:40], "tracked": len(SMART_TOP),
-        "real_active": smart_real_active(), "real_owned": len(SMART_OWNED),
+        "real_active": smart_real_active(), "real_owned": len(SMART_OWNED), "paused": PAUSE["smart"],
         "lev": SMART_LEV, "tp_pct": round(SMART_TP * 100), "frac_pct": round(SMART_FRAC * 100),
         "history": SMART["hist"][-1500:], "pnl_all": round(eq - base, 2),
         "building": SMART_BUILD["on"], "build_done": SMART_BUILD["done"], "build_total": SMART_BUILD["total"],
@@ -1624,6 +1651,8 @@ def live_load_config():
         m = d.get("mode")
         if m in ("live", "smart"):
             MODE["v"] = m
+        PAUSE["live"] = bool(d.get("pause_live", False))
+        PAUSE["smart"] = bool(d.get("pause_smart", False))
     except Exception as e:
         print("live_load_config error:", e)
 
@@ -1638,6 +1667,8 @@ def live_save_config():
         d["live_max_lev"] = int(LIVE["max_lev"])
         d["live_killswitch"] = bool(LIVE["killswitch"])
         d["mode"] = MODE["v"]
+        d["pause_live"] = bool(PAUSE["live"])
+        d["pause_smart"] = bool(PAUSE["smart"])
         tmp = CONFIG_FILE + ".tmp"
         json.dump(d, open(tmp, "w"))
         os.replace(tmp, CONFIG_FILE)
@@ -2035,6 +2066,7 @@ def live_publish():
         STATE["live"] = {
             "enabled": LIVE["enabled"], "ready": LIVE["ready"], "err": LIVE["err"],
             "connected": live_has_credentials(), "mode": MODE["v"], "builder_ok": LIVE.get("builder_ok", False),
+            "paused": PAUSE["live"],
             "net": LIVE["net"], "addr": LIVE["addr"], "whale": WHALE, "equity": round(LIVE["equity"], 2),
             "perp_equity": round(LIVE["perp_equity"], 2), "spot_equity": round(LIVE["spot_equity"], 2),
             "day_pnl": day_pnl, "killed": LIVE["killed"], "killswitch": LIVE["killswitch"], "max_lev": LIVE["max_lev"],
@@ -2161,6 +2193,8 @@ def live_tick(ctx):
         openseen.pop(key, None); known.add(key)
         if key in LIVE["owned"]:
             continue
+        if PAUSE["live"]:
+            live_note("⏸ %s übersprungen — Live pausiert." % whale[key]["bare"], "skip"); continue
         if LIVE["killed"]:
             live_log("⏭️ %s übersprungen — Kill-Switch." % whale[key]["bare"], "skip"); continue
         # account-wide cap: ALL open positions (your manual ones + the bot's)

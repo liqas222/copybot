@@ -661,8 +661,10 @@
                 <div class="statrow"><span>Kill-Switch</span><span class="num" id="liveKill">—</span></div>
                 <div class="statrow"><span>Account</span><span class="num" id="liveAddr">—</span></div>
                 <div class="statrow"><span>Kopiert Wallet</span><span class="num" id="liveWhale">—</span></div>
+                <div class="statrow"><span>Status</span><span class="num" id="livePauseState">—</span></div>
                 <div class="liveerr" id="liveErr" style="display:none"></div>
-                <button class="btn danger" id="livePanic" style="width:100%;margin-top:12px" onclick="livePanic()">🧹 PANIC — Engine aus &amp; alle Bot-Positionen schließen</button>
+                <button class="btn" id="livePauseBtn" style="width:100%;margin-top:12px" onclick="pauseBot('live')">⏸ Pause</button>
+                <button class="btn danger" id="livePanic" style="width:100%;margin-top:8px" onclick="livePanic()">🧹 PANIC — Engine aus &amp; alle Bot-Positionen schließen</button>
               </div>
             </section>
             <section class="panel" id="liveSettings">
@@ -1855,6 +1857,9 @@ function renderLive(lv) {
   setT("liveEffLev", lv.lev != null ? lv.lev : "—");
   const lvl = document.getElementById("liveMaxLev");
   if (lvl && document.activeElement !== lvl && lv.max_lev != null) lvl.value = lv.max_lev;
+  setT("livePauseState", lv.paused ? "⏸ pausiert" : "▶️ aktiv");
+  const lpb = document.getElementById("livePauseBtn");
+  if (lpb) lpb.textContent = lv.paused ? "▶️ Fortsetzen" : "⏸ Pause";
   const err = document.getElementById("liveErr");
   if (err) { if (lv.err && lv.enabled) { err.style.display = "block"; err.textContent = "⚠️ " + lv.err; } else err.style.display = "none"; }
   // positions
@@ -1934,6 +1939,16 @@ async function connDisconnect(p) {
     const k = document.getElementById("setAgentKey"); if (k) k.value = "";
     renderConn("set", { connected: false });
     const sw = document.getElementById("liveSwitch"); if (sw) sw.checked = false;
+  } catch (e) { alert("Fehler: " + e); }
+}
+async function pauseBot(bot) {
+  // toggle based on the last known state from the status payload
+  const cur = bot === "live" ? (lastBotStatus && lastBotStatus.live && lastBotStatus.live.paused)
+                             : (lastBotStatus && lastBotStatus.smart && lastBotStatus.smart.paused);
+  try {
+    await fetch("/pause_bot?token=" + encodeURIComponent(DASH_TOKEN), {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "bot=" + bot + "&on=" + (cur ? "0" : "1") });
   } catch (e) { alert("Fehler: " + e); }
 }
 async function liveToggle(on) {
@@ -2159,6 +2174,8 @@ function renderSmart(sm) {
       <div class="statrow"><span>Cash (free)</span><span class="num">${fmtUsdC(sm.cash)}</span></div>
       <div class="statrow"><span>Win rate</span><span class="num">${sm.stats ? sm.stats.win_rate : 0}% · ${sm.stats ? sm.stats.count : 0} trades</span></div>
       <div class="statrow"><span>Open positions</span><span class="num">${(sm.pos || []).length} / 5</span></div>
+      <div class="statrow"><span>Status</span><span class="num ${sm.paused ? "neg" : "pos"}">${sm.paused ? "⏸ pausiert" : "▶️ aktiv"}</span></div>
+      <button class="btn" style="width:100%;margin-top:10px" onclick="pauseBot('smart')">${sm.paused ? "▶️ Fortsetzen" : "⏸ Pause"}</button>
       <div class="stratbox" style="margin-top:12px"><div class="strathd">Strategy</div>
         <div class="statrow"><span>Strategie</span><span class="num">Top-100 · neue Opens kopieren</span></div>
         <div class="statrow"><span>Trade-Scan</span><span class="num pos">24/7 · alle ~60s</span></div>
