@@ -1115,8 +1115,13 @@ function renderLive() {
   setInputOnce("lvMaxLev", String(n(lv.max_lev)));
   setInputOnce("lvTpC", String(n(ST.tp_crypto_pct)));
   setInputOnce("lvTpS", String(n(ST.tp_stock_pct)));
-  $("livePosMeta").textContent = (lv.pos || []).length + " open";
-  $("livePosC").innerHTML = posTable(lv.pos, false);
+  if (ST.mode === "live") {
+    $("livePosMeta").textContent = (lv.pos || []).length + " open";
+    $("livePosC").innerHTML = posTable(lv.pos, false);
+  } else {
+    $("livePosMeta").textContent = "inactive";
+    $("livePosC").innerHTML = '<div class="empty">⏸ inaktiv — Modus: SMART. Offene Positionen erscheinen beim aktiven Bot.</div>';
+  }
   $("liveClosedC").innerHTML = closedTable(lv.closed, false);
   $("liveLogC").innerHTML = feedHtml(lv.log);
 }
@@ -1148,8 +1153,13 @@ function renderSmart() {
     } else nb.style.display = "none";
   }
   lineChart($("smChart"), rangeCut(sm.history || [], smRangeV), { h: 200, auto: true });
-  $("smPosMeta").textContent = (sm.pos || []).length + " open";
-  $("smPosC").innerHTML = posTable(sm.pos, true);
+  if (ST.mode === "smart") {
+    $("smPosMeta").textContent = (sm.pos || []).length + " open";
+    $("smPosC").innerHTML = posTable(sm.pos, true);
+  } else {
+    $("smPosMeta").textContent = "inactive";
+    $("smPosC").innerHTML = '<div class="empty">⏸ inaktiv — Modus: LIVE. Offene Positionen erscheinen beim aktiven Bot.</div>';
+  }
   $("smFeedC").innerHTML = feedHtml(sm.signals);
   $("smClosedC").innerHTML = closedTable(sm.closed, true);
   const top = sm.top || [];

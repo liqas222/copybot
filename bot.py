@@ -307,14 +307,24 @@ def _positions_text():
                 % (p.get("side", ""), p.get("coin", ""), int(p.get("lev") or 0),
                    float(p.get("margin") or 0), _fmt_money(p.get("upnl", 0)),
                    float(p.get("roe") or 0) * 100, tag))
+    mode = MODE["v"]
     out = ["📋 OFFENE POSITIONEN", ""]
-    lp = lv.get("pos", []) or []
-    out.append("🔴 LIVE (echtes Geld) — %d offen · Account $%.2f" % (len(lp), lv.get("equity", 0)))
-    out += [fmt(p, " [BOT]" if p.get("owned") else "") for p in lp] or ["  keine"]
+    # Only the ACTIVE (real-trading) engine lists positions, so the same account trade
+    # isn't shown twice. The inactive engine is marked accordingly.
+    if mode == "live":
+        lp = lv.get("pos", []) or []
+        out.append("🔴 LIVE (echtes Geld) — %d offen · Account $%.2f" % (len(lp), lv.get("equity", 0)))
+        out += [fmt(p, " [BOT]" if p.get("owned") else "") for p in lp] or ["  keine"]
+    else:
+        out.append("🔴 LIVE — ⏸ inaktiv (Modus: Smart)")
     out.append("")
-    sp = sm.get("pos", []) or []
-    out.append("🧠 SMART — %d offen · Equity $%.2f" % (len(sp), sm.get("equity", 0)))
-    out += [fmt(p) for p in sp] or ["  keine"]
+    if mode == "smart":
+        sp = sm.get("pos", []) or []
+        tag = "🔴 ECHTES GELD" if sm.get("real_active") else "Paper"
+        out.append("🧠 SMART (%s) — %d offen · Equity $%.2f" % (tag, len(sp), sm.get("equity", 0)))
+        out += [fmt(p) for p in sp] or ["  keine"]
+    else:
+        out.append("🧠 SMART — ⏸ inaktiv (Modus: Live)")
     return "\n".join(out)
 
 def run_tg_listener():
@@ -1389,7 +1399,7 @@ def smart_publish(mids):
         "stats": {"count": n, "win_rate": round(100.0 * wins / n, 1) if n else 0.0,
                   "realized": round(tot, 2), "sum_roe": round(sum_roe, 1)},
         "top": SMART_TOP[:100], "signals": SMART_SIG[:40], "tracked": len(SMART_TOP),
-        "real_active": smart_real_active(), "real_owned": len(SMART_OWNED), "paused": PAUSE["smart"],
+        "real_active": smart_real_active(), "real_owned": len(SMART_OWNED), "paused": PAUSE["smart"], "mode": MODE["v"],
         "lev": SMART_LEV, "tp_pct": round(SMART_TP * 100), "frac_pct": round(SMART_FRAC * 100),
         "history": SMART["hist"][-1500:], "pnl_all": round(eq - base, 2),
         "building": SMART_BUILD["on"], "build_done": SMART_BUILD["done"], "build_total": SMART_BUILD["total"],
