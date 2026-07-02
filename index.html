@@ -1342,7 +1342,7 @@ function renderDashboard() {
   $("dashUpdated").textContent = botOk ? "SYNC " + new Date().toLocaleTimeString("de-CH") : "LINK LOST";
   $("dashMode").textContent = "MODE " + (st.mode || "—").toUpperCase();
   const dayPnl = n(lv.day_pnl), smPnl = n(sm.pnl_all);
-  const openN = n(lv.open_total) + ((sm.pos || []).length);
+  const openRows = allOpen();
   $("dashKpis").innerHTML =
     kpiHtml("Account Value", lv.connected ? fmtUsd(n(lv.equity)) : "—",
       lv.connected ? `perp ${fmtUsd(n(lv.perp_equity))} · spot ${fmtUsd(n(lv.spot_equity))}` : "not connected", "", true) +
@@ -1350,7 +1350,7 @@ function renderDashboard() {
     kpiHtml("Live Engine", lv.enabled && lv.ready ? (lv.paused ? "PAUSED" : "ARMED") : "OFF",
       (lv.killed ? "kill-switch hit · " : "") + `${n(lv.owned)} bot pos`, lv.enabled && lv.ready ? (lv.paused ? "dim" : "neg") : "dim") +
     kpiHtml("Smart Money", fmtUsd(n(sm.equity)), `PnL ${fmtUsd(smPnl, true)} · ${(sm.pos || []).length} pos · paper`, cls(smPnl)) +
-    kpiHtml("Open Positions", String(openN), `${n(lv.open_total)} live · ${(sm.pos || []).length} smart`);
+    kpiHtml("Open Positions", String(openRows.length), `active engine (${(st.mode || "live").toUpperCase()})`);
   const s1 = rangeCut(lv.history || [], dashRange), s2 = rangeCut(sm.history || [], dashRange);
   const series = [];
   if (s1.length > 1) series.push({ pts: s1, color: C_S1, name: "LIVE" });
@@ -1369,10 +1369,8 @@ function renderDashboard() {
       <button class="b sm" onclick="goto('risk')">OPEN</button></div>
     <div class="ctlrow"><div><div class="cl">📡 TELEGRAM</div><div class="cs">${st.tg_on ? "connected · chat " + esc(st.tg_chat || "") : "not connected"}</div></div>
       <button class="b sm" onclick="goto('settings')">SETUP</button></div>`;
-  const rows = [];
-  for (const p of lv.pos || []) rows.push({ eng: "LIVE", ...p });
-  for (const p of sm.pos || []) rows.push({ eng: "SMART", ...p });
-  $("dashPosCount").textContent = rows.length + " open";
+  const rows = openRows;
+  $("dashPosCount").textContent = rows.length + " open · " + (st.mode || "live").toUpperCase();
   $("dashPos").innerHTML = rows.length ? `<div class="twrap"><table class="tbl"><thead><tr>
       <th class="l">Asset</th><th>Engine</th><th>Size/Lev</th><th>Entry</th><th>Mark</th><th>uPnL</th><th>ROE</th></tr></thead><tbody>` +
     rows.map((p) => `<tr class="click" onclick="openCoin('${esc(p.coin)}')">
@@ -1496,8 +1494,13 @@ function renderLive() {
   setInputOnce("lvMaxLev", String(n(lv.max_lev)));
   setInputOnce("lvTpC", String(n(ST.tp_crypto_pct)));
   setInputOnce("lvTpS", String(n(ST.tp_stock_pct)));
-  $("livePosMeta").textContent = (lv.pos || []).length + " open";
-  $("livePosC").innerHTML = posTable(lv.pos, false);
+  if (ST.mode === "live") {
+    $("livePosMeta").textContent = (lv.pos || []).length + " open";
+    $("livePosC").innerHTML = posTable(lv.pos, false);
+  } else {
+    $("livePosMeta").textContent = "inactive";
+    $("livePosC").innerHTML = '<div class="empty">⏸ inactive — mode is SMART. Open positions are shown under the active engine.</div>';
+  }
   $("liveClosedC").innerHTML = closedTable(lv.closed, false);
   $("liveLogC").innerHTML = feedHtml(lv.log);
 }
@@ -1559,8 +1562,13 @@ function renderSmart() {
     } else nb.style.display = "none";
   }
   lineChart($("smChart"), rangeCut(sm.history || [], smRangeV), { h: 190, auto: true });
-  $("smPosMeta").textContent = (sm.pos || []).length + " open";
-  $("smPosC").innerHTML = posTable(sm.pos, true);
+  if (ST.mode === "smart") {
+    $("smPosMeta").textContent = (sm.pos || []).length + " open";
+    $("smPosC").innerHTML = posTable(sm.pos, true);
+  } else {
+    $("smPosMeta").textContent = "inactive";
+    $("smPosC").innerHTML = '<div class="empty">⏸ inactive — mode is LIVE. Open positions are shown under the active engine.</div>';
+  }
   $("smFeedC").innerHTML = feedHtml(sm.signals);
   $("smClosedC").innerHTML = closedTable(sm.closed, true);
   const top = sm.top || [];
@@ -1579,11 +1587,12 @@ function renderSmart() {
 
 /* ================= RISK MONITOR ================= */
 function allOpen() {
-  const lv = (ST && ST.live) || {}, sm = (ST && ST.smart) || {};
-  const rows = [];
-  for (const p of lv.pos || []) rows.push({ eng: "LIVE", ...p });
-  for (const p of sm.pos || []) rows.push({ eng: "SMART", ...p });
-  return rows;
+  // Both engines read the SAME account, so only the ACTIVE mode's engine lists
+  // open positions (mirrors bot.py's no-double-display rule from #100).
+  const st = ST || {}, lv = st.live || {}, sm = st.smart || {};
+  return st.mode === "smart"
+    ? (sm.pos || []).map((p) => ({ eng: "SMART", ...p }))
+    : (lv.pos || []).map((p) => ({ eng: "LIVE", ...p }));
 }
 function liqDistPct(p) {
   const mark = n(p.mark) || mid(p.coin), liq = n(p.liq);
